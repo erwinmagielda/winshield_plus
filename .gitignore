@@ -1,1 +1,22 @@
+# PyInstaller
+build/
+dist/
+*.spec
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Virtual environments
+venv/
+.env/
+
+# Results & data
+results/
+data/
 the_plan.txt
+
+# OS junk
+.DS_Store
+Thumbs.db
