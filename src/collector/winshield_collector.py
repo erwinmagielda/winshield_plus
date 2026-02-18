@@ -16,9 +16,7 @@ else:
     BASE_PATH = os.path.dirname(os.path.abspath(__file__))
 
 POWERSHELL_DIR = os.path.join(BASE_PATH, "powershell")
-RESULTS_DIR = os.path.join(BASE_PATH, "results")
-
-os.makedirs(RESULTS_DIR, exist_ok=True)
+OUTPUT_DIR = BASE_PATH
 
 
 BASELINE_SCRIPT = "winshield_baseline.ps1"
@@ -167,7 +165,7 @@ def main() -> None:
 
         # SAVE RESULT
         timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-        output_path = os.path.join(RESULTS_DIR, f"scan_{timestamp}.json")
+        output_path = os.path.join(OUTPUT_DIR, f"scan_{timestamp}.json")
 
         result = {
             "Baseline": baseline,
