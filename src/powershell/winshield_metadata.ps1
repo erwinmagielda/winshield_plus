@@ -1,57 +1,45 @@
 param(
-    [Parameter(Mandatory = $true)]
-    [string[]]$MonthIds
+    [Parameter(Mandatory=$true)]
+    [string]$MonthIds
 )
 
-Import-Module MsrcSecurityUpdates
+$months = $MonthIds -split ","
 
-$metadata = @{}
+$results = @{}
 
-foreach ($month in $MonthIds) {
+foreach ($month in $months) {
 
     $doc = Get-MsrcCvrfDocument -ID $month
 
-    foreach ($vuln in $doc.Vulnerability) {
+    foreach ($v in $doc.Vulnerability) {
 
-        $cve = $vuln.CVE
-        if (-not $cve) { continue }
+        $cve = $v.CVE
 
-        # --- CVSS (first unique entry only)
-        $cvssEntry = $vuln.CVSSScoreSets | Select-Object -First 1
+        # Severity
+        $severity = ($v.Threats | Where-Object { $_.Type -eq 3 } |
+                     Select-Object -First 1).Description.Value
 
-        $baseScore = $null
-        $vector = $null
+        # Exploitation
+        $exploit = ($v.Threats | Where-Object { $_.Type -eq 1 } |
+                    Select-Object -First 1).Description.Value
 
-        if ($cvssEntry) {
-            $baseScore = $cvssEntry.BaseScore
-            $vector = $cvssEntry.Vector
-        }
+        # CVSS
+        $cvss = $v.CVSSScoreSets | Select-Object -First 1
 
-        # --- Severity (Threat Type 3)
-        $severity = $vuln.Threats |
-            Where-Object { $_.Type -eq 3 } |
-            Select-Object -First 1 |
-            ForEach-Object { $_.Description.Value }
+        $baseScore = $cvss.BaseScore
+        $vector = $cvss.Vector
 
-        # --- Exploitation info (Threat Type 1)
-        $exploitation = $vuln.Threats |
-            Where-Object { $_.Type -eq 1 } |
-            Select-Object -First 1 |
-            ForEach-Object { $_.Description.Value }
+        # Published date
+        $published = ($v.RevisionHistory | Select-Object -First 1).Date
 
-        # --- Published date
-        $published = $vuln.RevisionHistory |
-            Select-Object -First 1 |
-            ForEach-Object { $_.Date }
-
-        $metadata[$cve] = @{
-            BaseScore = $baseScore
-            Vector = $vector
-            Severity = $severity
+        $results[$cve] = @{
+            Severity      = $severity
+            BaseScore     = $baseScore
+            Vector        = $vector
             PublishedDate = $published
-            Exploitation = $exploitation
+            Exploitation  = $exploit
         }
     }
 }
 
-$metadata | ConvertTo-Json -Depth 6
+$results | ConvertTo-Json -Depth 5

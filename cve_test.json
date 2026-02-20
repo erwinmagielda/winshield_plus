@@ -1,0 +1,1646 @@
+﻿{
+    "Title":  {
+                  "Value":  "Desktop Window Manager Elevation of Privilege Vulnerability"
+              },
+    "Notes":  [
+                  {
+                      "Title":  "Description",
+                      "Type":  2,
+                      "Ordinal":  "0",
+                      "Value":  "\u003cp\u003eAccess of resource using incompatible type (\u0027type confusion\u0027) in Desktop Window Manager allows an authorized attacker to elevate privileges locally.\u003c/p\u003e\n"
+                  },
+                  {
+                      "Title":  "FAQ",
+                      "Type":  4,
+                      "Ordinal":  "10",
+                      "Value":  "\u003cp\u003e\u003cstrong\u003eWhat privileges could be gained by an attacker who successfully exploited this vulnerability?\u003c/strong\u003e\u003c/p\u003e\n\u003cp\u003eAn attacker who successfully exploited this vulnerability could gain SYSTEM privileges.\u003c/p\u003e\n"
+                  },
+                  {
+                      "Title":  "Desktop Window Manager",
+                      "Type":  7,
+                      "Ordinal":  "20",
+                      "Value":  "Desktop Window Manager"
+                  },
+                  {
+                      "Title":  "Microsoft",
+                      "Type":  8,
+                      "Ordinal":  "30",
+                      "Value":  "Microsoft"
+                  },
+                  {
+                      "Title":  "Customer Action Required",
+                      "Type":  6,
+                      "Ordinal":  "40",
+                      "Value":  "Yes"
+                  }
+              ],
+    "DiscoveryDate":  "0001-01-01T00:00:00",
+    "DiscoveryDateSpecified":  false,
+    "ReleaseDate":  "0001-01-01T00:00:00",
+    "ReleaseDateSpecified":  false,
+    "CVE":  "CVE-2026-21519",
+    "CWE":  [
+                {
+                    "ID":  "CWE-843",
+                    "Value":  "Access of Resource Using Incompatible Type (\u0027Type Confusion\u0027)"
+                }
+            ],
+    "ProductStatuses":  [
+                            {
+                                "ProductID":  [
+                                                  "11568",
+                                                  "11569",
+                                                  "11571",
+                                                  "11572",
+                                                  "11923",
+                                                  "11924",
+                                                  "11929",
+                                                  "11930",
+                                                  "11931",
+                                                  "12097",
+                                                  "12098",
+                                                  "12099",
+                                                  "12437",
+                                                  "20437",
+                                                  "20438",
+                                                  "12242",
+                                                  "12243",
+                                                  "12244",
+                                                  "12389",
+                                                  "12390",
+                                                  "12436",
+                                                  "10852",
+                                                  "10853",
+                                                  "10816",
+                                                  "10855",
+                                                  "20854",
+                                                  "20853"
+                                              ],
+                                "Type":  3
+                            }
+                        ],
+    "Threats":  [
+                    {
+                        "Description":  {
+                                            "Value":  "Elevation of Privilege"
+                                        },
+                        "ProductID":  [
+                                          "11568"
+                                      ],
+                        "Type":  0,
+                        "Date":  "0001-01-01T00:00:00",
+                        "DateSpecified":  false
+                    },
+                    {
+                        "Description":  {
+                                            "Value":  "Elevation of Privilege"
+                                        },
+                        "ProductID":  [
+                                          "11569"
+                                      ],
+                        "Type":  0,
+                        "Date":  "0001-01-01T00:00:00",
+                        "DateSpecified":  false
+                    },
+                    {
+                        "Description":  {
+                                            "Value":  "Elevation of Privilege"
+                                        },
+                        "ProductID":  [
+                                          "11571"
+                                      ],
+                        "Type":  0,
+                        "Date":  "0001-01-01T00:00:00",
+                        "DateSpecified":  false
+                    },
+                    {
+                        "Description":  {
+                                            "Value":  "Elevation of Privilege"
+                                        },
+                        "ProductID":  [
+                                          "11572"
+                                      ],
+                        "Type":  0,
+                        "Date":  "0001-01-01T00:00:00",
+                        "DateSpecified":  false
+                    },
+                    {
+                        "Description":  {
+                                            "Value":  "Elevation of Privilege"
+                                        },
+                        "ProductID":  [
+                                          "11923"
+                                      ],
+                        "Type":  0,
+                        "Date":  "0001-01-01T00:00:00",
+                        "DateSpecified":  false
+                    },
+                    {
+                        "Description":  {
+                                            "Value":  "Elevation of Privilege"
+                                        },
+                        "ProductID":  [
+                                          "11924"
+                                      ],
+                        "Type":  0,
+                        "Date":  "0001-01-01T00:00:00",
+                        "DateSpecified":  false
+                    },
+                    {
+                        "Description":  {
+                                            "Value":  "Elevation of Privilege"
+                                        },
+                        "ProductID":  [
+                                          "11929"
+                                      ],
+                        "Type":  0,
+                        "Date":  "0001-01-01T00:00:00",
+                        "DateSpecified":  false
+                    },
+                    {
+                        "Description":  {
+                                            "Value":  "Elevation of Privilege"
+                                        },
+                        "ProductID":  [
+                                          "11930"
+                                      ],
+                        "Type":  0,
+                        "Date":  "0001-01-01T00:00:00",
+                        "DateSpecified":  false
+                    },
+                    {
+                        "Description":  {
+                                            "Value":  "Elevation of Privilege"
+                                        },
+                        "ProductID":  [
+                                          "11931"
+                                      ],
+                        "Type":  0,
+                        "Date":  "0001-01-01T00:00:00",
+                        "DateSpecified":  false
+                    },
+                    {
+                        "Description":  {
+                                            "Value":  "Elevation of Privilege"
+                                        },
+                        "ProductID":  [
+                                          "12097"
+                                      ],
+                        "Type":  0,
+                        "Date":  "0001-01-01T00:00:00",
+                        "DateSpecified":  false
+                    },
+                    {
+                        "Description":  {
+                                            "Value":  "Elevation of Privilege"
+                                        },
+                        "ProductID":  [
+                                          "12098"
+                                      ],
+                        "Type":  0,
+                        "Date":  "0001-01-01T00:00:00",
+                        "DateSpecified":  false
+                    },
+                    {
+                        "Description":  {
+                                            "Value":  "Elevation of Privilege"
+                                        },
+                        "ProductID":  [
+                                          "12099"
+                                      ],
+                        "Type":  0,
+                        "Date":  "0001-01-01T00:00:00",
+                        "DateSpecified":  false
+                    },
+                    {
+                        "Description":  {
+                                            "Value":  "Elevation of Privilege"
+                                        },
+                        "ProductID":  [
+                                          "12437"
+                                      ],
+                        "Type":  0,
+                        "Date":  "0001-01-01T00:00:00",
+                        "DateSpecified":  false
+                    },
+                    {
+                        "Description":  {
+                                            "Value":  "Elevation of Privilege"
+                                        },
+                        "ProductID":  [
+                                          "20437"
+                                      ],
+                        "Type":  0,
+                        "Date":  "0001-01-01T00:00:00",
+                        "DateSpecified":  false
+                    },
+                    {
+                        "Description":  {
+                                            "Value":  "Elevation of Privilege"
+                                        },
+                        "ProductID":  [
+                                          "20438"
+                                      ],
+                        "Type":  0,
+                        "Date":  "0001-01-01T00:00:00",
+                        "DateSpecified":  false
+                    },
+                    {
+                        "Description":  {
+                                            "Value":  "Elevation of Privilege"
+                                        },
+                        "ProductID":  [
+                                          "12242"
+                                      ],
+                        "Type":  0,
+                        "Date":  "0001-01-01T00:00:00",
+                        "DateSpecified":  false
+                    },
+                    {
+                        "Description":  {
+                                            "Value":  "Elevation of Privilege"
+                                        },
+                        "ProductID":  [
+                                          "12243"
+                                      ],
+                        "Type":  0,
+                        "Date":  "0001-01-01T00:00:00",
+                        "DateSpecified":  false
+                    },
+                    {
+                        "Description":  {
+                                            "Value":  "Elevation of Privilege"
+                                        },
+                        "ProductID":  [
+                                          "12244"
+                                      ],
+                        "Type":  0,
+                        "Date":  "0001-01-01T00:00:00",
+                        "DateSpecified":  false
+                    },
+                    {
+                        "Description":  {
+                                            "Value":  "Elevation of Privilege"
+                                        },
+                        "ProductID":  [
+                                          "12389"
+                                      ],
+                        "Type":  0,
+                        "Date":  "0001-01-01T00:00:00",
+                        "DateSpecified":  false
+                    },
+                    {
+                        "Description":  {
+                                            "Value":  "Elevation of Privilege"
+                                        },
+                        "ProductID":  [
+                                          "12390"
+                                      ],
+                        "Type":  0,
+                        "Date":  "0001-01-01T00:00:00",
+                        "DateSpecified":  false
+                    },
+                    {
+                        "Description":  {
+                                            "Value":  "Elevation of Privilege"
+                                        },
+                        "ProductID":  [
+                                          "12436"
+                                      ],
+                        "Type":  0,
+                        "Date":  "0001-01-01T00:00:00",
+                        "DateSpecified":  false
+                    },
+                    {
+                        "Description":  {
+                                            "Value":  "Elevation of Privilege"
+                                        },
+                        "ProductID":  [
+                                          "10852"
+                                      ],
+                        "Type":  0,
+                        "Date":  "0001-01-01T00:00:00",
+                        "DateSpecified":  false
+                    },
+                    {
+                        "Description":  {
+                                            "Value":  "Elevation of Privilege"
+                                        },
+                        "ProductID":  [
+                                          "10853"
+                                      ],
+                        "Type":  0,
+                        "Date":  "0001-01-01T00:00:00",
+                        "DateSpecified":  false
+                    },
+                    {
+                        "Description":  {
+                                            "Value":  "Elevation of Privilege"
+                                        },
+                        "ProductID":  [
+                                          "10816"
+                                      ],
+                        "Type":  0,
+                        "Date":  "0001-01-01T00:00:00",
+                        "DateSpecified":  false
+                    },
+                    {
+                        "Description":  {
+                                            "Value":  "Elevation of Privilege"
+                                        },
+                        "ProductID":  [
+                                          "10855"
+                                      ],
+                        "Type":  0,
+                        "Date":  "0001-01-01T00:00:00",
+                        "DateSpecified":  false
+                    },
+                    {
+                        "Description":  {
+                                            "Value":  "Elevation of Privilege"
+                                        },
+                        "ProductID":  [
+                                          "20854"
+                                      ],
+                        "Type":  0,
+                        "Date":  "0001-01-01T00:00:00",
+                        "DateSpecified":  false
+                    },
+                    {
+                        "Description":  {
+                                            "Value":  "Elevation of Privilege"
+                                        },
+                        "ProductID":  [
+                                          "20853"
+                                      ],
+                        "Type":  0,
+                        "Date":  "0001-01-01T00:00:00",
+                        "DateSpecified":  false
+                    },
+                    {
+                        "Description":  {
+                                            "Value":  "Important"
+                                        },
+                        "ProductID":  [
+                                          "11568"
+                                      ],
+                        "Type":  3,
+                        "Date":  "0001-01-01T00:00:00",
+                        "DateSpecified":  false
+                    },
+                    {
+                        "Description":  {
+                                            "Value":  "Important"
+                                        },
+                        "ProductID":  [
+                                          "11569"
+                                      ],
+                        "Type":  3,
+                        "Date":  "0001-01-01T00:00:00",
+                        "DateSpecified":  false
+                    },
+                    {
+                        "Description":  {
+                                            "Value":  "Important"
+                                        },
+                        "ProductID":  [
+                                          "11571"
+                                      ],
+                        "Type":  3,
+                        "Date":  "0001-01-01T00:00:00",
+                        "DateSpecified":  false
+                    },
+                    {
+                        "Description":  {
+                                            "Value":  "Important"
+                                        },
+                        "ProductID":  [
+                                          "11572"
+                                      ],
+                        "Type":  3,
+                        "Date":  "0001-01-01T00:00:00",
+                        "DateSpecified":  false
+                    },
+                    {
+                        "Description":  {
+                                            "Value":  "Important"
+                                        },
+                        "ProductID":  [
+                                          "11923"
+                                      ],
+                        "Type":  3,
+                        "Date":  "0001-01-01T00:00:00",
+                        "DateSpecified":  false
+                    },
+                    {
+                        "Description":  {
+                                            "Value":  "Important"
+                                        },
+                        "ProductID":  [
+                                          "11924"
+                                      ],
+                        "Type":  3,
+                        "Date":  "0001-01-01T00:00:00",
+                        "DateSpecified":  false
+                    },
+                    {
+                        "Description":  {
+                                            "Value":  "Important"
+                                        },
+                        "ProductID":  [
+                                          "11929"
+                                      ],
+                        "Type":  3,
+                        "Date":  "0001-01-01T00:00:00",
+                        "DateSpecified":  false
+                    },
+                    {
+                        "Description":  {
+                                            "Value":  "Important"
+                                        },
+                        "ProductID":  [
+                                          "11930"
+                                      ],
+                        "Type":  3,
+                        "Date":  "0001-01-01T00:00:00",
+                        "DateSpecified":  false
+                    },
+                    {
+                        "Description":  {
+                                            "Value":  "Important"
+                                        },
+                        "ProductID":  [
+                                          "11931"
+                                      ],
+                        "Type":  3,
+                        "Date":  "0001-01-01T00:00:00",
+                        "DateSpecified":  false
+                    },
+                    {
+                        "Description":  {
+                                            "Value":  "Important"
+                                        },
+                        "ProductID":  [
+                                          "12097"
+                                      ],
+                        "Type":  3,
+                        "Date":  "0001-01-01T00:00:00",
+                        "DateSpecified":  false
+                    },
+                    {
+                        "Description":  {
+                                            "Value":  "Important"
+                                        },
+                        "ProductID":  [
+                                          "12098"
+                                      ],
+                        "Type":  3,
+                        "Date":  "0001-01-01T00:00:00",
+                        "DateSpecified":  false
+                    },
+                    {
+                        "Description":  {
+                                            "Value":  "Important"
+                                        },
+                        "ProductID":  [
+                                          "12099"
+                                      ],
+                        "Type":  3,
+                        "Date":  "0001-01-01T00:00:00",
+                        "DateSpecified":  false
+                    },
+                    {
+                        "Description":  {
+                                            "Value":  "Important"
+                                        },
+                        "ProductID":  [
+                                          "12437"
+                                      ],
+                        "Type":  3,
+                        "Date":  "0001-01-01T00:00:00",
+                        "DateSpecified":  false
+                    },
+                    {
+                        "Description":  {
+                                            "Value":  "Important"
+                                        },
+                        "ProductID":  [
+                                          "20437"
+                                      ],
+                        "Type":  3,
+                        "Date":  "0001-01-01T00:00:00",
+                        "DateSpecified":  false
+                    },
+                    {
+                        "Description":  {
+                                            "Value":  "Important"
+                                        },
+                        "ProductID":  [
+                                          "20438"
+                                      ],
+                        "Type":  3,
+                        "Date":  "0001-01-01T00:00:00",
+                        "DateSpecified":  false
+                    },
+                    {
+                        "Description":  {
+                                            "Value":  "Important"
+                                        },
+                        "ProductID":  [
+                                          "12242"
+                                      ],
+                        "Type":  3,
+                        "Date":  "0001-01-01T00:00:00",
+                        "DateSpecified":  false
+                    },
+                    {
+                        "Description":  {
+                                            "Value":  "Important"
+                                        },
+                        "ProductID":  [
+                                          "12243"
+                                      ],
+                        "Type":  3,
+                        "Date":  "0001-01-01T00:00:00",
+                        "DateSpecified":  false
+                    },
+                    {
+                        "Description":  {
+                                            "Value":  "Important"
+                                        },
+                        "ProductID":  [
+                                          "12244"
+                                      ],
+                        "Type":  3,
+                        "Date":  "0001-01-01T00:00:00",
+                        "DateSpecified":  false
+                    },
+                    {
+                        "Description":  {
+                                            "Value":  "Important"
+                                        },
+                        "ProductID":  [
+                                          "12389"
+                                      ],
+                        "Type":  3,
+                        "Date":  "0001-01-01T00:00:00",
+                        "DateSpecified":  false
+                    },
+                    {
+                        "Description":  {
+                                            "Value":  "Important"
+                                        },
+                        "ProductID":  [
+                                          "12390"
+                                      ],
+                        "Type":  3,
+                        "Date":  "0001-01-01T00:00:00",
+                        "DateSpecified":  false
+                    },
+                    {
+                        "Description":  {
+                                            "Value":  "Important"
+                                        },
+                        "ProductID":  [
+                                          "12436"
+                                      ],
+                        "Type":  3,
+                        "Date":  "0001-01-01T00:00:00",
+                        "DateSpecified":  false
+                    },
+                    {
+                        "Description":  {
+                                            "Value":  "Important"
+                                        },
+                        "ProductID":  [
+                                          "10852"
+                                      ],
+                        "Type":  3,
+                        "Date":  "0001-01-01T00:00:00",
+                        "DateSpecified":  false
+                    },
+                    {
+                        "Description":  {
+                                            "Value":  "Important"
+                                        },
+                        "ProductID":  [
+                                          "10853"
+                                      ],
+                        "Type":  3,
+                        "Date":  "0001-01-01T00:00:00",
+                        "DateSpecified":  false
+                    },
+                    {
+                        "Description":  {
+                                            "Value":  "Important"
+                                        },
+                        "ProductID":  [
+                                          "10816"
+                                      ],
+                        "Type":  3,
+                        "Date":  "0001-01-01T00:00:00",
+                        "DateSpecified":  false
+                    },
+                    {
+                        "Description":  {
+                                            "Value":  "Important"
+                                        },
+                        "ProductID":  [
+                                          "10855"
+                                      ],
+                        "Type":  3,
+                        "Date":  "0001-01-01T00:00:00",
+                        "DateSpecified":  false
+                    },
+                    {
+                        "Description":  {
+                                            "Value":  "Important"
+                                        },
+                        "ProductID":  [
+                                          "20854"
+                                      ],
+                        "Type":  3,
+                        "Date":  "0001-01-01T00:00:00",
+                        "DateSpecified":  false
+                    },
+                    {
+                        "Description":  {
+                                            "Value":  "Important"
+                                        },
+                        "ProductID":  [
+                                          "20853"
+                                      ],
+                        "Type":  3,
+                        "Date":  "0001-01-01T00:00:00",
+                        "DateSpecified":  false
+                    },
+                    {
+                        "Description":  {
+                                            "Value":  "Publicly Disclosed:No;Exploited:Yes;Latest Software Release:Exploitation Detected"
+                                        },
+                        "Type":  1,
+                        "Date":  "0001-01-01T00:00:00",
+                        "DateSpecified":  false
+                    }
+                ],
+    "CVSSScoreSets":  [
+                          {
+                              "BaseScore":  7.8,
+                              "TemporalScore":  6.8,
+                              "EnvironmentalScore":  0,
+                              "Vector":  "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H/E:U/RL:O/RC:C",
+                              "ProductID":  [
+                                                "11568"
+                                            ],
+                              "IsTemporalScoreFieldSpecified":  false
+                          },
+                          {
+                              "BaseScore":  7.8,
+                              "TemporalScore":  6.8,
+                              "EnvironmentalScore":  0,
+                              "Vector":  "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H/E:U/RL:O/RC:C",
+                              "ProductID":  [
+                                                "11569"
+                                            ],
+                              "IsTemporalScoreFieldSpecified":  false
+                          },
+                          {
+                              "BaseScore":  7.8,
+                              "TemporalScore":  6.8,
+                              "EnvironmentalScore":  0,
+                              "Vector":  "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H/E:U/RL:O/RC:C",
+                              "ProductID":  [
+                                                "11571"
+                                            ],
+                              "IsTemporalScoreFieldSpecified":  false
+                          },
+                          {
+                              "BaseScore":  7.8,
+                              "TemporalScore":  6.8,
+                              "EnvironmentalScore":  0,
+                              "Vector":  "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H/E:U/RL:O/RC:C",
+                              "ProductID":  [
+                                                "11572"
+                                            ],
+                              "IsTemporalScoreFieldSpecified":  false
+                          },
+                          {
+                              "BaseScore":  7.8,
+                              "TemporalScore":  6.8,
+                              "EnvironmentalScore":  0,
+                              "Vector":  "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H/E:U/RL:O/RC:C",
+                              "ProductID":  [
+                                                "11923"
+                                            ],
+                              "IsTemporalScoreFieldSpecified":  false
+                          },
+                          {
+                              "BaseScore":  7.8,
+                              "TemporalScore":  6.8,
+                              "EnvironmentalScore":  0,
+                              "Vector":  "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H/E:U/RL:O/RC:C",
+                              "ProductID":  [
+                                                "11924"
+                                            ],
+                              "IsTemporalScoreFieldSpecified":  false
+                          },
+                          {
+                              "BaseScore":  7.8,
+                              "TemporalScore":  6.8,
+                              "EnvironmentalScore":  0,
+                              "Vector":  "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H/E:U/RL:O/RC:C",
+                              "ProductID":  [
+                                                "11929"
+                                            ],
+                              "IsTemporalScoreFieldSpecified":  false
+                          },
+                          {
+                              "BaseScore":  7.8,
+                              "TemporalScore":  6.8,
+                              "EnvironmentalScore":  0,
+                              "Vector":  "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H/E:U/RL:O/RC:C",
+                              "ProductID":  [
+                                                "11930"
+                                            ],
+                              "IsTemporalScoreFieldSpecified":  false
+                          },
+                          {
+                              "BaseScore":  7.8,
+                              "TemporalScore":  6.8,
+                              "EnvironmentalScore":  0,
+                              "Vector":  "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H/E:U/RL:O/RC:C",
+                              "ProductID":  [
+                                                "11931"
+                                            ],
+                              "IsTemporalScoreFieldSpecified":  false
+                          },
+                          {
+                              "BaseScore":  7.8,
+                              "TemporalScore":  6.8,
+                              "EnvironmentalScore":  0,
+                              "Vector":  "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H/E:U/RL:O/RC:C",
+                              "ProductID":  [
+                                                "12097"
+                                            ],
+                              "IsTemporalScoreFieldSpecified":  false
+                          },
+                          {
+                              "BaseScore":  7.8,
+                              "TemporalScore":  6.8,
+                              "EnvironmentalScore":  0,
+                              "Vector":  "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H/E:U/RL:O/RC:C",
+                              "ProductID":  [
+                                                "12098"
+                                            ],
+                              "IsTemporalScoreFieldSpecified":  false
+                          },
+                          {
+                              "BaseScore":  7.8,
+                              "TemporalScore":  6.8,
+                              "EnvironmentalScore":  0,
+                              "Vector":  "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H/E:U/RL:O/RC:C",
+                              "ProductID":  [
+                                                "12099"
+                                            ],
+                              "IsTemporalScoreFieldSpecified":  false
+                          },
+                          {
+                              "BaseScore":  7.8,
+                              "TemporalScore":  6.8,
+                              "EnvironmentalScore":  0,
+                              "Vector":  "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H/E:U/RL:O/RC:C",
+                              "ProductID":  [
+                                                "12437"
+                                            ],
+                              "IsTemporalScoreFieldSpecified":  false
+                          },
+                          {
+                              "BaseScore":  7.8,
+                              "TemporalScore":  6.8,
+                              "EnvironmentalScore":  0,
+                              "Vector":  "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H/E:U/RL:O/RC:C",
+                              "ProductID":  [
+                                                "20437"
+                                            ],
+                              "IsTemporalScoreFieldSpecified":  false
+                          },
+                          {
+                              "BaseScore":  7.8,
+                              "TemporalScore":  6.8,
+                              "EnvironmentalScore":  0,
+                              "Vector":  "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H/E:U/RL:O/RC:C",
+                              "ProductID":  [
+                                                "20438"
+                                            ],
+                              "IsTemporalScoreFieldSpecified":  false
+                          },
+                          {
+                              "BaseScore":  7.8,
+                              "TemporalScore":  6.8,
+                              "EnvironmentalScore":  0,
+                              "Vector":  "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H/E:U/RL:O/RC:C",
+                              "ProductID":  [
+                                                "12242"
+                                            ],
+                              "IsTemporalScoreFieldSpecified":  false
+                          },
+                          {
+                              "BaseScore":  7.8,
+                              "TemporalScore":  6.8,
+                              "EnvironmentalScore":  0,
+                              "Vector":  "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H/E:U/RL:O/RC:C",
+                              "ProductID":  [
+                                                "12243"
+                                            ],
+                              "IsTemporalScoreFieldSpecified":  false
+                          },
+                          {
+                              "BaseScore":  7.8,
+                              "TemporalScore":  6.8,
+                              "EnvironmentalScore":  0,
+                              "Vector":  "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H/E:U/RL:O/RC:C",
+                              "ProductID":  [
+                                                "12244"
+                                            ],
+                              "IsTemporalScoreFieldSpecified":  false
+                          },
+                          {
+                              "BaseScore":  7.8,
+                              "TemporalScore":  6.8,
+                              "EnvironmentalScore":  0,
+                              "Vector":  "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H/E:U/RL:O/RC:C",
+                              "ProductID":  [
+                                                "12389"
+                                            ],
+                              "IsTemporalScoreFieldSpecified":  false
+                          },
+                          {
+                              "BaseScore":  7.8,
+                              "TemporalScore":  6.8,
+                              "EnvironmentalScore":  0,
+                              "Vector":  "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H/E:U/RL:O/RC:C",
+                              "ProductID":  [
+                                                "12390"
+                                            ],
+                              "IsTemporalScoreFieldSpecified":  false
+                          },
+                          {
+                              "BaseScore":  7.8,
+                              "TemporalScore":  6.8,
+                              "EnvironmentalScore":  0,
+                              "Vector":  "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H/E:U/RL:O/RC:C",
+                              "ProductID":  [
+                                                "12436"
+                                            ],
+                              "IsTemporalScoreFieldSpecified":  false
+                          },
+                          {
+                              "BaseScore":  7.8,
+                              "TemporalScore":  6.8,
+                              "EnvironmentalScore":  0,
+                              "Vector":  "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H/E:U/RL:O/RC:C",
+                              "ProductID":  [
+                                                "10852"
+                                            ],
+                              "IsTemporalScoreFieldSpecified":  false
+                          },
+                          {
+                              "BaseScore":  7.8,
+                              "TemporalScore":  6.8,
+                              "EnvironmentalScore":  0,
+                              "Vector":  "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H/E:U/RL:O/RC:C",
+                              "ProductID":  [
+                                                "10853"
+                                            ],
+                              "IsTemporalScoreFieldSpecified":  false
+                          },
+                          {
+                              "BaseScore":  7.8,
+                              "TemporalScore":  6.8,
+                              "EnvironmentalScore":  0,
+                              "Vector":  "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H/E:U/RL:O/RC:C",
+                              "ProductID":  [
+                                                "10816"
+                                            ],
+                              "IsTemporalScoreFieldSpecified":  false
+                          },
+                          {
+                              "BaseScore":  7.8,
+                              "TemporalScore":  6.8,
+                              "EnvironmentalScore":  0,
+                              "Vector":  "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H/E:U/RL:O/RC:C",
+                              "ProductID":  [
+                                                "10855"
+                                            ],
+                              "IsTemporalScoreFieldSpecified":  false
+                          },
+                          {
+                              "BaseScore":  7.8,
+                              "TemporalScore":  6.8,
+                              "EnvironmentalScore":  0,
+                              "Vector":  "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H/E:U/RL:O/RC:C",
+                              "ProductID":  [
+                                                "20854"
+                                            ],
+                              "IsTemporalScoreFieldSpecified":  false
+                          },
+                          {
+                              "BaseScore":  7.8,
+                              "TemporalScore":  6.8,
+                              "EnvironmentalScore":  0,
+                              "Vector":  "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H/E:U/RL:O/RC:C",
+                              "ProductID":  [
+                                                "20853"
+                                            ],
+                              "IsTemporalScoreFieldSpecified":  false
+                          }
+                      ],
+    "Remediations":  [
+                         {
+                             "Description":  {
+                                                 "Value":  "5075904"
+                                             },
+                             "URL":  "https://catalog.update.microsoft.com/v7/site/Search.aspx?q=KB5075904",
+                             "ProductID":  [
+                                               "11568",
+                                               "11569",
+                                               "11571",
+                                               "11572"
+                                           ],
+                             "Type":  2,
+                             "Date":  "0001-01-01T00:00:00",
+                             "DateSpecified":  false,
+                             "AffectedFiles":  [
+
+                                               ],
+                             "RestartRequired":  {
+                                                     "Value":  "Yes"
+                                                 },
+                             "SubType":  "Security Update",
+                             "FixedBuild":  "10.0.17763.8389"
+                         },
+                         {
+                             "URL":  "https://support.microsoft.com/help/5075904",
+                             "ProductID":  [
+                                               "11568",
+                                               "11569",
+                                               "11571",
+                                               "11572"
+                                           ],
+                             "Type":  3,
+                             "Date":  "0001-01-01T00:00:00",
+                             "DateSpecified":  false,
+                             "AffectedFiles":  [
+
+                                               ],
+                             "SubType":  "5075904"
+                         },
+                         {
+                             "Description":  {
+                                                 "Value":  "5075906"
+                                             },
+                             "URL":  "https://catalog.update.microsoft.com/v7/site/Search.aspx?q=KB5075906",
+                             "Supercedence":  "5073457",
+                             "ProductID":  [
+                                               "11923",
+                                               "11924"
+                                           ],
+                             "Type":  2,
+                             "Date":  "0001-01-01T00:00:00",
+                             "DateSpecified":  false,
+                             "AffectedFiles":  [
+
+                                               ],
+                             "RestartRequired":  {
+                                                     "Value":  "Yes"
+                                                 },
+                             "SubType":  "Security Update",
+                             "FixedBuild":  "10.0.20348.4773"
+                         },
+                         {
+                             "URL":  "https://support.microsoft.com/help/5075906",
+                             "ProductID":  [
+                                               "11923",
+                                               "11924"
+                                           ],
+                             "Type":  3,
+                             "Date":  "0001-01-01T00:00:00",
+                             "DateSpecified":  false,
+                             "AffectedFiles":  [
+
+                                               ],
+                             "SubType":  "5075906"
+                         },
+                         {
+                             "Description":  {
+                                                 "Value":  "5075906"
+                                             },
+                             "URL":  "https://support.microsoft.com/help/5075906",
+                             "ProductID":  [
+                                               "11923",
+                                               "11924"
+                                           ],
+                             "Type":  6,
+                             "Date":  "0001-01-01T00:00:00",
+                             "DateSpecified":  false,
+                             "AffectedFiles":  [
+
+                                               ]
+                         },
+                         {
+                             "Description":  {
+                                                 "Value":  "5075943"
+                                             },
+                             "URL":  "https://catalog.update.microsoft.com/v7/site/Search.aspx?q=KB5075943",
+                             "ProductID":  [
+                                               "11923",
+                                               "11924"
+                                           ],
+                             "Type":  2,
+                             "Date":  "0001-01-01T00:00:00",
+                             "DateSpecified":  false,
+                             "AffectedFiles":  [
+
+                                               ],
+                             "RestartRequired":  {
+                                                     "Value":  "Yes"
+                                                 },
+                             "SubType":  "Security Hotpatch Update",
+                             "FixedBuild":  "10.0.20348.4711"
+                         },
+                         {
+                             "URL":  "https://support.microsoft.com/help/5075943",
+                             "ProductID":  [
+                                               "11923",
+                                               "11924"
+                                           ],
+                             "Type":  3,
+                             "Date":  "0001-01-01T00:00:00",
+                             "DateSpecified":  false,
+                             "AffectedFiles":  [
+
+                                               ],
+                             "SubType":  "5075943"
+                         },
+                         {
+                             "Description":  {
+                                                 "Value":  "5075943"
+                                             },
+                             "URL":  "https://support.microsoft.com/help/5075943",
+                             "ProductID":  [
+                                               "11923",
+                                               "11924"
+                                           ],
+                             "Type":  6,
+                             "Date":  "0001-01-01T00:00:00",
+                             "DateSpecified":  false,
+                             "AffectedFiles":  [
+
+                                               ]
+                         },
+                         {
+                             "Description":  {
+                                                 "Value":  "5075912"
+                                             },
+                             "URL":  "https://catalog.update.microsoft.com/v7/site/Search.aspx?q=KB5075912",
+                             "Supercedence":  "5073724",
+                             "ProductID":  [
+                                               "11929",
+                                               "11930",
+                                               "11931"
+                                           ],
+                             "Type":  2,
+                             "Date":  "0001-01-01T00:00:00",
+                             "DateSpecified":  false,
+                             "AffectedFiles":  [
+
+                                               ],
+                             "RestartRequired":  {
+                                                     "Value":  "Yes"
+                                                 },
+                             "SubType":  "Security Update",
+                             "FixedBuild":  "10.0.19044.6937"
+                         },
+                         {
+                             "URL":  "https://support.microsoft.com/help/5075912",
+                             "ProductID":  [
+                                               "11929",
+                                               "11930",
+                                               "11931"
+                                           ],
+                             "Type":  3,
+                             "Date":  "0001-01-01T00:00:00",
+                             "DateSpecified":  false,
+                             "AffectedFiles":  [
+
+                                               ],
+                             "SubType":  "5075912"
+                         },
+                         {
+                             "Description":  {
+                                                 "Value":  "5075912"
+                                             },
+                             "URL":  "https://catalog.update.microsoft.com/v7/site/Search.aspx?q=KB5075912",
+                             "Supercedence":  "5073724",
+                             "ProductID":  [
+                                               "12097",
+                                               "12098",
+                                               "12099"
+                                           ],
+                             "Type":  2,
+                             "Date":  "0001-01-01T00:00:00",
+                             "DateSpecified":  false,
+                             "AffectedFiles":  [
+
+                                               ],
+                             "RestartRequired":  {
+                                                     "Value":  "Yes"
+                                                 },
+                             "SubType":  "Security Update",
+                             "FixedBuild":  "10.0.19045.6937"
+                         },
+                         {
+                             "URL":  "https://support.microsoft.com/help/5075912",
+                             "ProductID":  [
+                                               "12097",
+                                               "12098",
+                                               "12099"
+                                           ],
+                             "Type":  3,
+                             "Date":  "0001-01-01T00:00:00",
+                             "DateSpecified":  false,
+                             "AffectedFiles":  [
+
+                                               ],
+                             "SubType":  "5075912"
+                         },
+                         {
+                             "Description":  {
+                                                 "Value":  "5075899"
+                                             },
+                             "URL":  "https://catalog.update.microsoft.com/v7/site/Search.aspx?q=KB5075899",
+                             "Supercedence":  "5074109",
+                             "ProductID":  [
+                                               "12437",
+                                               "12436"
+                                           ],
+                             "Type":  2,
+                             "Date":  "0001-01-01T00:00:00",
+                             "DateSpecified":  false,
+                             "AffectedFiles":  [
+
+                                               ],
+                             "RestartRequired":  {
+                                                     "Value":  "Yes"
+                                                 },
+                             "SubType":  "Security Update",
+                             "FixedBuild":  "10.0.26100.32370"
+                         },
+                         {
+                             "URL":  "https://support.microsoft.com/help/5075899",
+                             "ProductID":  [
+                                               "12437",
+                                               "12436"
+                                           ],
+                             "Type":  3,
+                             "Date":  "0001-01-01T00:00:00",
+                             "DateSpecified":  false,
+                             "AffectedFiles":  [
+
+                                               ],
+                             "SubType":  "5075899"
+                         },
+                         {
+                             "Description":  {
+                                                 "Value":  "5075899"
+                                             },
+                             "URL":  "https://support.microsoft.com/help/5075899",
+                             "ProductID":  [
+                                               "12437",
+                                               "12436"
+                                           ],
+                             "Type":  6,
+                             "Date":  "0001-01-01T00:00:00",
+                             "DateSpecified":  false,
+                             "AffectedFiles":  [
+
+                                               ]
+                         },
+                         {
+                             "Description":  {
+                                                 "Value":  "5075942"
+                                             },
+                             "URL":  "https://catalog.update.microsoft.com/v7/site/Search.aspx?q=KB5075942",
+                             "ProductID":  [
+                                               "12437",
+                                               "12436"
+                                           ],
+                             "Type":  2,
+                             "Date":  "0001-01-01T00:00:00",
+                             "DateSpecified":  false,
+                             "AffectedFiles":  [
+
+                                               ],
+                             "RestartRequired":  {
+                                                     "Value":  "Yes"
+                                                 },
+                             "SubType":  "Security Hotpatch Update",
+                             "FixedBuild":  "10.0.26100.32313"
+                         },
+                         {
+                             "URL":  "https://support.microsoft.com/help/5075942",
+                             "ProductID":  [
+                                               "12437",
+                                               "12436"
+                                           ],
+                             "Type":  3,
+                             "Date":  "0001-01-01T00:00:00",
+                             "DateSpecified":  false,
+                             "AffectedFiles":  [
+
+                                               ],
+                             "SubType":  "5075942"
+                         },
+                         {
+                             "Description":  {
+                                                 "Value":  "5075942"
+                                             },
+                             "URL":  "https://support.microsoft.com/help/5075942",
+                             "ProductID":  [
+                                               "12437",
+                                               "12436"
+                                           ],
+                             "Type":  6,
+                             "Date":  "0001-01-01T00:00:00",
+                             "DateSpecified":  false,
+                             "AffectedFiles":  [
+
+                                               ]
+                         },
+                         {
+                             "Description":  {
+                                                 "Value":  "5077181"
+                                             },
+                             "URL":  "https://catalog.update.microsoft.com/v7/site/Search.aspx?q=KB5077181",
+                             "Supercedence":  "5074109",
+                             "ProductID":  [
+                                               "20437",
+                                               "20438"
+                                           ],
+                             "Type":  2,
+                             "Date":  "0001-01-01T00:00:00",
+                             "DateSpecified":  false,
+                             "AffectedFiles":  [
+
+                                               ],
+                             "RestartRequired":  {
+                                                     "Value":  "Yes"
+                                                 },
+                             "SubType":  "Security Update",
+                             "FixedBuild":  "10.0.26200.7840"
+                         },
+                         {
+                             "URL":  "https://support.microsoft.com/help/5077181",
+                             "ProductID":  [
+                                               "20437",
+                                               "20438"
+                                           ],
+                             "Type":  3,
+                             "Date":  "0001-01-01T00:00:00",
+                             "DateSpecified":  false,
+                             "AffectedFiles":  [
+
+                                               ],
+                             "SubType":  "5077181"
+                         },
+                         {
+                             "Description":  {
+                                                 "Value":  "5077212"
+                                             },
+                             "URL":  "https://catalog.update.microsoft.com/v7/site/Search.aspx?q=KB5077212",
+                             "ProductID":  [
+                                               "20437",
+                                               "20438"
+                                           ],
+                             "Type":  2,
+                             "Date":  "0001-01-01T00:00:00",
+                             "DateSpecified":  false,
+                             "AffectedFiles":  [
+
+                                               ],
+                             "RestartRequired":  {
+                                                     "Value":  "Yes"
+                                                 },
+                             "SubType":  "Security Hotpatch Update",
+                             "FixedBuild":  "10.0.26200.7781"
+                         },
+                         {
+                             "URL":  "https://support.microsoft.com/help/5077212",
+                             "ProductID":  [
+                                               "20437",
+                                               "20438"
+                                           ],
+                             "Type":  3,
+                             "Date":  "0001-01-01T00:00:00",
+                             "DateSpecified":  false,
+                             "AffectedFiles":  [
+
+                                               ],
+                             "SubType":  "5077212"
+                         },
+                         {
+                             "Description":  {
+                                                 "Value":  "5075941"
+                                             },
+                             "URL":  "https://catalog.update.microsoft.com/v7/site/Search.aspx?q=KB5075941",
+                             "Supercedence":  "5073455",
+                             "ProductID":  [
+                                               "12242",
+                                               "12243"
+                                           ],
+                             "Type":  2,
+                             "Date":  "0001-01-01T00:00:00",
+                             "DateSpecified":  false,
+                             "AffectedFiles":  [
+
+                                               ],
+                             "RestartRequired":  {
+                                                     "Value":  "Yes"
+                                                 },
+                             "SubType":  "Security Update",
+                             "FixedBuild":  "10.0.22631.6649"
+                         },
+                         {
+                             "URL":  "https://support.microsoft.com/help/5075941",
+                             "ProductID":  [
+                                               "12242",
+                                               "12243"
+                                           ],
+                             "Type":  3,
+                             "Date":  "0001-01-01T00:00:00",
+                             "DateSpecified":  false,
+                             "AffectedFiles":  [
+
+                                               ],
+                             "SubType":  "5075941"
+                         },
+                         {
+                             "Description":  {
+                                                 "Value":  "5075897"
+                                             },
+                             "URL":  "https://catalog.update.microsoft.com/v7/site/Search.aspx?q=KB5075897",
+                             "Supercedence":  "5073450",
+                             "ProductID":  [
+                                               "12244"
+                                           ],
+                             "Type":  2,
+                             "Date":  "0001-01-01T00:00:00",
+                             "DateSpecified":  false,
+                             "AffectedFiles":  [
+
+                                               ],
+                             "RestartRequired":  {
+                                                     "Value":  "Yes"
+                                                 },
+                             "SubType":  "Security Update",
+                             "FixedBuild":  "10.0.25398.2149"
+                         },
+                         {
+                             "URL":  "https://support.microsoft.com/help/5075897",
+                             "ProductID":  [
+                                               "12244"
+                                           ],
+                             "Type":  3,
+                             "Date":  "0001-01-01T00:00:00",
+                             "DateSpecified":  false,
+                             "AffectedFiles":  [
+
+                                               ],
+                             "SubType":  "5075897"
+                         },
+                         {
+                             "Description":  {
+                                                 "Value":  "5075897"
+                                             },
+                             "URL":  "https://support.microsoft.com/help/5075897",
+                             "ProductID":  [
+                                               "12244"
+                                           ],
+                             "Type":  6,
+                             "Date":  "0001-01-01T00:00:00",
+                             "DateSpecified":  false,
+                             "AffectedFiles":  [
+
+                                               ]
+                         },
+                         {
+                             "Description":  {
+                                                 "Value":  "5077181"
+                                             },
+                             "URL":  "https://catalog.update.microsoft.com/v7/site/Search.aspx?q=KB5077181",
+                             "Supercedence":  "5073379",
+                             "ProductID":  [
+                                               "12389"
+                                           ],
+                             "Type":  2,
+                             "Date":  "0001-01-01T00:00:00",
+                             "DateSpecified":  false,
+                             "AffectedFiles":  [
+
+                                               ],
+                             "RestartRequired":  {
+                                                     "Value":  "Yes"
+                                                 },
+                             "SubType":  "Security Update",
+                             "FixedBuild":  "10.0.26100.7840"
+                         },
+                         {
+                             "URL":  "https://support.microsoft.com/help/5077181",
+                             "ProductID":  [
+                                               "12389"
+                                           ],
+                             "Type":  3,
+                             "Date":  "0001-01-01T00:00:00",
+                             "DateSpecified":  false,
+                             "AffectedFiles":  [
+
+                                               ],
+                             "SubType":  "5077181"
+                         },
+                         {
+                             "Description":  {
+                                                 "Value":  "5077212"
+                                             },
+                             "URL":  "https://catalog.update.microsoft.com/v7/site/Search.aspx?q=KB5077212",
+                             "ProductID":  [
+                                               "12389",
+                                               "12390"
+                                           ],
+                             "Type":  2,
+                             "Date":  "0001-01-01T00:00:00",
+                             "DateSpecified":  false,
+                             "AffectedFiles":  [
+
+                                               ],
+                             "RestartRequired":  {
+                                                     "Value":  "Yes"
+                                                 },
+                             "SubType":  "Security Hotpatch Update",
+                             "FixedBuild":  "10.0.26100.7781"
+                         },
+                         {
+                             "URL":  "https://support.microsoft.com/help/5077212",
+                             "ProductID":  [
+                                               "12389",
+                                               "12390"
+                                           ],
+                             "Type":  3,
+                             "Date":  "0001-01-01T00:00:00",
+                             "DateSpecified":  false,
+                             "AffectedFiles":  [
+
+                                               ],
+                             "SubType":  "5077212"
+                         },
+                         {
+                             "Description":  {
+                                                 "Value":  "5077181"
+                                             },
+                             "URL":  "https://catalog.update.microsoft.com/v7/site/Search.aspx?q=KB5077181",
+                             "Supercedence":  "5074109",
+                             "ProductID":  [
+                                               "12390"
+                                           ],
+                             "Type":  2,
+                             "Date":  "0001-01-01T00:00:00",
+                             "DateSpecified":  false,
+                             "AffectedFiles":  [
+
+                                               ],
+                             "RestartRequired":  {
+                                                     "Value":  "Yes"
+                                                 },
+                             "SubType":  "Security Update",
+                             "FixedBuild":  "10.0.26100.7840"
+                         },
+                         {
+                             "URL":  "https://support.microsoft.com/help/5077181",
+                             "ProductID":  [
+                                               "12390"
+                                           ],
+                             "Type":  3,
+                             "Date":  "0001-01-01T00:00:00",
+                             "DateSpecified":  false,
+                             "AffectedFiles":  [
+
+                                               ],
+                             "SubType":  "5077181"
+                         },
+                         {
+                             "Description":  {
+                                                 "Value":  "5075999"
+                                             },
+                             "URL":  "https://catalog.update.microsoft.com/v7/site/Search.aspx?q=KB5075999",
+                             "ProductID":  [
+                                               "10852",
+                                               "10853",
+                                               "10816",
+                                               "10855"
+                                           ],
+                             "Type":  2,
+                             "Date":  "0001-01-01T00:00:00",
+                             "DateSpecified":  false,
+                             "AffectedFiles":  [
+
+                                               ],
+                             "RestartRequired":  {
+                                                     "Value":  "Yes"
+                                                 },
+                             "SubType":  "Security Update",
+                             "FixedBuild":  "10.0.14393.8868"
+                         },
+                         {
+                             "URL":  "https://support.microsoft.com/help/5075999",
+                             "ProductID":  [
+                                               "10852",
+                                               "10853",
+                                               "10816",
+                                               "10855"
+                                           ],
+                             "Type":  3,
+                             "Date":  "0001-01-01T00:00:00",
+                             "DateSpecified":  false,
+                             "AffectedFiles":  [
+
+                                               ],
+                             "SubType":  "5075999"
+                         },
+                         {
+                             "Description":  {
+                                                 "Value":  "5077179"
+                                             },
+                             "URL":  "https://catalog.update.microsoft.com/v7/site/Search.aspx?q=KB5077179",
+                             "ProductID":  [
+                                               "20854",
+                                               "20853"
+                                           ],
+                             "Type":  2,
+                             "Date":  "0001-01-01T00:00:00",
+                             "DateSpecified":  false,
+                             "AffectedFiles":  [
+
+                                               ],
+                             "RestartRequired":  {
+                                                     "Value":  "Yes"
+                                                 },
+                             "SubType":  "Security Update",
+                             "FixedBuild":  "10.0.28000.1575"
+                         },
+                         {
+                             "URL":  "https://support.microsoft.com/help/5077179",
+                             "ProductID":  [
+                                               "20854",
+                                               "20853"
+                                           ],
+                             "Type":  3,
+                             "Date":  "0001-01-01T00:00:00",
+                             "DateSpecified":  false,
+                             "AffectedFiles":  [
+
+                                               ],
+                             "SubType":  "5077179"
+                         }
+                     ],
+    "Acknowledgments":  [
+                            {
+                                "Name":  [
+                                             {
+                                                 "Value":  "Microsoft Threat Intelligence Center (MSTIC) \u0026 Microsoft Security Response Center (MSRC)"
+                                             }
+                                         ],
+                                "URL":  [
+                                            ""
+                                        ]
+                            },
+                            {
+                                "Name":  [
+                                             {
+                                                 "Value":  "Microsoft Threat Intelligence Center (MSTIC) \u0026 Microsoft Security Response Center (MSRC)"
+                                             }
+                                         ],
+                                "URL":  [
+                                            ""
+                                        ]
+                            }
+                        ],
+    "Ordinal":  "48",
+    "RevisionHistory":  [
+                            {
+                                "Number":  "1.0",
+                                "Date":  "2026-02-10T08:00:00",
+                                "Description":  {
+                                                    "Value":  "\u003cp\u003eInformation published.\u003c/p\u003e\n"
+                                                }
+                            }
+                        ]
+}
