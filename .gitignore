@@ -15,7 +15,7 @@ venv/
 # Results & data
 results/
 data/
-the_plan.txt
+notes.txt
 
 # OS junk
 .DS_Store
