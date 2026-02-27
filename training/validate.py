@@ -24,7 +24,7 @@ def has_complete_enrichment(row):
         "integrity_impact",
         "availability_impact",
         "published_date",
-        "exploitation"
+        "exploited_flag"
     ]
 
     for field in required_fields:

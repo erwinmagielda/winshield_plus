@@ -26,6 +26,7 @@ def load_and_preprocess(test_size=0.2, random_state=42):
         "cve_id",
         "month",
         "published_date",
+        "exploited_flag",
     ]
 
     X = df.drop(columns=[col for col in drop_cols if col in df.columns])

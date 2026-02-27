@@ -16,10 +16,9 @@ def compute_risk_score(row):
     except:
         pass
 
-    # Exploitation bonus
-    exploitation = row.get("exploitation", "")
-    if "Exploited:Yes" in exploitation:
-        score += 2
+    # Exploitation bonus (binary)
+    exploited_flag = 1 if "Exploited:Yes" in row.get("exploitation", "") else 0
+    score += exploited_flag * 2
 
     # Attack vector
     av = row.get("attack_vector")
@@ -42,7 +41,7 @@ def compute_risk_score(row):
     except:
         pass
 
-    return round(score, 2)
+    return round(score, 2), exploited_flag
 
 
 def assign_priority(score):
@@ -59,8 +58,12 @@ rows = []
 with open(INPUT_CSV, newline="", encoding="utf-8") as f:
     reader = csv.DictReader(f)
     for row in reader:
-        risk_score = compute_risk_score(row)
+        risk_score, exploited_flag = compute_risk_score(row)
         priority = assign_priority(risk_score)
+
+        # Replace raw exploitation column with clean binary feature
+        row["exploited_flag"] = exploited_flag
+        row.pop("exploitation", None)
 
         row["risk_score"] = risk_score
         row["priority_label"] = priority
