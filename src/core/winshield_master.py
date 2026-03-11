@@ -14,6 +14,15 @@ from typing import Dict, Tuple
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(SCRIPT_DIR)
 
+TRAINING_DIR = os.path.join(ROOT_DIR, "training")
+
+FLATTEN_SCRIPT = os.path.join(TRAINING_DIR, "flatten.py")
+ENRICH_SCRIPT = os.path.join(TRAINING_DIR, "enrich.py")
+VALIDATE_SCRIPT = os.path.join(TRAINING_DIR, "validate.py")
+PREPROCESS_SCRIPT = os.path.join(TRAINING_DIR, "preprocess.py")
+
+PRIORITISER_SCRIPT = os.path.join(SCRIPT_DIR, "winshield_prioritiser.py")
+
 PYTHON_EXE = sys.executable
 
 
@@ -57,6 +66,35 @@ def run_stage(label: str, path: str) -> int:
     return rc
 
 
+def run_runtime_pipeline() -> None:
+    """Run runtime preprocessing and prioritisation pipeline."""
+
+    pipeline = [
+        (FLATTEN_SCRIPT, ["--mode", "runtime"]),
+        (ENRICH_SCRIPT, ["--mode", "runtime"]),
+        (VALIDATE_SCRIPT, ["--mode", "runtime"]),
+        (PREPROCESS_SCRIPT, ["--mode", "runtime"]),
+        (PRIORITISER_SCRIPT, []),
+    ]
+
+    for script, args in pipeline:
+
+        if not os.path.isfile(script):
+            print(f"[X] Missing pipeline script: {script}")
+            return
+
+        print(f"[*] Running {os.path.basename(script)}")
+
+        result = subprocess.run(
+            [PYTHON_EXE, script, *args],
+            cwd=ROOT_DIR
+        )
+
+        if result.returncode != 0:
+            print("[X] Pipeline stage failed.")
+            return
+
+
 def print_menu() -> None:
     print("=" * 43)
     print("                 WinShield")
@@ -91,7 +129,14 @@ def main() -> int:
 
         if choice in STAGES:
             label, path = STAGES[choice]
-            run_stage(label, path)
+
+            rc = run_stage(label, path)
+
+            # After scanning run ML prioritisation
+            if choice == "1" and rc == 0:
+                print("[*] Running vulnerability prioritisation pipeline...\n")
+                run_runtime_pipeline()
+
             continue
 
         print("[!] Invalid selection.\n")
