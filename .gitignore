@@ -16,6 +16,7 @@ venv/
 results/
 data/
 models/
+downloads/
 notes.txt
 
 # OS junk
