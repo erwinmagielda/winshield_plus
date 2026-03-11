@@ -48,6 +48,7 @@ def run_powershell_script(script_name: str, extra_args: List[str] | None = None)
     result = subprocess.run(cmd, capture_output=True, text=True)
 
     if result.returncode != 0:
+        print(result.stderr)
         raise RuntimeError(f"{script_name} execution failed")
 
     stdout = result.stdout.strip()
