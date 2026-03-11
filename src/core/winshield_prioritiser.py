@@ -1,12 +1,11 @@
 """
 WinShield Prioritiser
 
-Loads the latest runtime scan and predicts patch risk using the
-trained ML model.
+Uses the already preprocessed runtime dataset to predict
+patch risk using the trained regression model.
 """
 
 import os
-import json
 import pandas as pd
 import joblib
 
@@ -21,138 +20,90 @@ ROOT_DIR = os.path.dirname(os.path.dirname(SCRIPT_DIR))
 RUNTIME_DIR = os.path.join(ROOT_DIR, "data", "runtime")
 MODELS_DIR = os.path.join(ROOT_DIR, "models")
 
-PREPROCESSOR_PATH = os.path.join(MODELS_DIR, "preprocessor.joblib")
-REGRESSOR_PATH = os.path.join(MODELS_DIR, "regressor.joblib")
+RUNTIME_FEATURES = os.path.join(RUNTIME_DIR, "preprocessed_runtime.csv")
+RUNTIME_VALIDATED = os.path.join(RUNTIME_DIR, "validated_runtime.csv")
+
+MODEL_PATH = os.path.join(MODELS_DIR, "regressor.joblib")
 
 
 # ------------------------------------------------------------
-# Find newest runtime scan
+# Load runtime datasets
 # ------------------------------------------------------------
 
-def get_latest_runtime_scan():
+def load_runtime_data():
 
-    files = [
-        f for f in os.listdir(RUNTIME_DIR)
-        if f.startswith("scan_") and f.endswith(".json")
-    ]
+    if not os.path.exists(RUNTIME_FEATURES):
+        raise RuntimeError("Run winshield_runtime.py first.")
 
-    if not files:
-        raise RuntimeError("No runtime scans found.")
+    features = pd.read_csv(RUNTIME_FEATURES)
+    metadata = pd.read_csv(RUNTIME_VALIDATED)
 
-    files.sort(reverse=True)
+    if len(features) != len(metadata):
+        raise RuntimeError("Feature and metadata rows do not match.")
 
-    latest = files[0]
-
-    return os.path.join(RUNTIME_DIR, latest), latest
-
-
-# ------------------------------------------------------------
-# Load scan JSON
-# ------------------------------------------------------------
-
-def load_runtime_scan():
-
-    path, name = get_latest_runtime_scan()
-
-    print(f"Using runtime scan: {name}")
-
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
-
-
-# ------------------------------------------------------------
-# Convert scan → dataframe
-# ------------------------------------------------------------
-
-def build_dataframe(scan_data):
-
-    rows = []
-
-    for entry in scan_data.get("KbEntries", []):
-
-        kb = entry.get("KB")
-        cves = entry.get("Cves", [])
-
-        for cve in cves:
-
-            rows.append({
-                "kb_id": kb,
-                "cve_id": cve,
-                "cve_count": len(cves)
-            })
-
-    df = pd.DataFrame(rows)
-
-    return df
-
-
-# ------------------------------------------------------------
-# Align runtime features with model features
-# ------------------------------------------------------------
-
-def align_features(df, preprocessor):
-
-    model_features = preprocessor.feature_names_in_
-
-    for col in model_features:
-        if col not in df.columns:
-            df[col] = 0
-
-    df = df[model_features]
-
-    return df
+    return features, metadata
 
 
 # ------------------------------------------------------------
 # Predict risk
 # ------------------------------------------------------------
 
-def predict_risk(df):
+def predict_risk(features, metadata):
 
-    print("Loading models...")
+    print("Loading regression model...")
 
-    preprocessor = joblib.load(PREPROCESSOR_PATH)
-    model = joblib.load(REGRESSOR_PATH)
+    model = joblib.load(MODEL_PATH)
 
-    df_aligned = align_features(df.copy(), preprocessor)
+    predictions = model.predict(features)
 
-    X_processed = preprocessor.transform(df_aligned)
+    metadata["predicted_risk"] = predictions
 
-    predictions = model.predict(X_processed)
-
-    df["predicted_risk"] = predictions
-
-    return df
+    return metadata
 
 
 # ------------------------------------------------------------
-# Sort by priority
+# Aggregate KB priority
 # ------------------------------------------------------------
 
-def prioritise(df):
+def get_kb_order(df):
 
-    return df.sort_values(
-        by="predicted_risk",
-        ascending=False
+    kb_scores = (
+        df.groupby("kb_id")["predicted_risk"]
+        .max()
+        .sort_values(ascending=False)
     )
 
+    return kb_scores.index
+
 
 # ------------------------------------------------------------
-# Print top priorities
+# Print prioritisation
 # ------------------------------------------------------------
 
-def print_priorities(df):
+def print_kb_breakdown(df):
 
-    print("\n=== Patch Prioritisation ===\n")
+    print("\n=== Patch Priority ===\n")
 
-    for _, row in df.head(15).iterrows():
+    df_sorted = df.sort_values("predicted_risk", ascending=False)
 
-        kb = row.get("kb_id", "UnknownKB")
-        cve = row.get("cve_id", "UnknownCVE")
+    kb_order = get_kb_order(df_sorted)
 
-        risk = row["predicted_risk"]
+    for kb in kb_order:
 
-        print(f"{kb} | {cve} | Risk: {risk:.2f}")
+        kb_rows = df_sorted[df_sorted["kb_id"] == kb]
+
+        max_risk = kb_rows["predicted_risk"].max()
+        cve_count = len(kb_rows)
+
+        print(f"{kb} | Max Risk: {max_risk:.2f} | CVEs: {cve_count}")
+
+        for _, row in kb_rows.iterrows():
+
+            print(
+                f"   ├ {row['cve_id']} | Risk: {row['predicted_risk']:.2f}"
+            )
+
+        print()
 
 
 # ------------------------------------------------------------
@@ -163,20 +114,14 @@ def main():
 
     print("\n=== WinShield AI Prioritisation ===")
 
-    scan_data = load_runtime_scan()
+    features, metadata = load_runtime_data()
 
-    df = build_dataframe(scan_data)
+    df = predict_risk(features, metadata)
 
-    if df.empty:
-        print("No vulnerabilities detected.")
-        return
+    print_kb_breakdown(df)
 
-    df = predict_risk(df)
 
-    df = prioritise(df)
-
-    print_priorities(df)
-
+# ------------------------------------------------------------
 
 if __name__ == "__main__":
     main()
