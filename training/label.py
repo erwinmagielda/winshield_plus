@@ -1,13 +1,39 @@
 import csv
 import os
+import argparse
+
+# ------------------------------------------------------------
+# MODE
+# ------------------------------------------------------------
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--mode", default="training", choices=["training", "runtime"])
+args = parser.parse_args()
+
+# ------------------------------------------------------------
+# PATHS
+# ------------------------------------------------------------
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DATA_DIR = os.path.join(BASE_DIR, "data")
 
-INPUT_CSV = os.path.join(BASE_DIR, "data", "enriched_dataset.csv")
-OUTPUT_CSV = os.path.join(BASE_DIR, "data", "labelled_dataset.csv")
+if args.mode == "runtime":
+    WORK_DIR = os.path.join(DATA_DIR, "runtime")
+    INPUT_CSV = os.path.join(WORK_DIR, "enriched_runtime.csv")
+    OUTPUT_CSV = os.path.join(WORK_DIR, "labelled_runtime.csv")
+else:
+    WORK_DIR = os.path.join(DATA_DIR, "dataset")
+    INPUT_CSV = os.path.join(WORK_DIR, "enriched_dataset.csv")
+    OUTPUT_CSV = os.path.join(WORK_DIR, "labelled_dataset.csv")
 
+os.makedirs(WORK_DIR, exist_ok=True)
+
+# ------------------------------------------------------------
+# RISK SCORE
+# ------------------------------------------------------------
 
 def compute_risk_score(row):
+
     score = 0.0
 
     # Base CVSS
@@ -16,7 +42,7 @@ def compute_risk_score(row):
     except:
         pass
 
-    # Exploitation bonus (binary)
+    # Exploitation bonus
     exploited_flag = 1 if "Exploited:Yes" in row.get("exploitation", "") else 0
     score += exploited_flag * 2
 
@@ -45,6 +71,7 @@ def compute_risk_score(row):
 
 
 def assign_priority(score):
+
     if score >= 9:
         return "High"
     elif score >= 6:
@@ -52,16 +79,22 @@ def assign_priority(score):
     else:
         return "Low"
 
+# ------------------------------------------------------------
+# PROCESS DATA
+# ------------------------------------------------------------
 
 rows = []
 
 with open(INPUT_CSV, newline="", encoding="utf-8") as f:
+
     reader = csv.DictReader(f)
+
     for row in reader:
+
         risk_score, exploited_flag = compute_risk_score(row)
         priority = assign_priority(risk_score)
 
-        # Replace raw exploitation column with clean binary feature
+        # Replace raw exploitation column with binary feature
         row["exploited_flag"] = exploited_flag
         row.pop("exploitation", None)
 
@@ -70,10 +103,18 @@ with open(INPUT_CSV, newline="", encoding="utf-8") as f:
 
         rows.append(row)
 
+# ------------------------------------------------------------
+# WRITE OUTPUT
+# ------------------------------------------------------------
+
+if not rows:
+    print("No rows to label.")
+    exit()
 
 fieldnames = list(rows[0].keys())
 
 with open(OUTPUT_CSV, "w", newline="", encoding="utf-8") as f:
+
     writer = csv.DictWriter(f, fieldnames=fieldnames)
     writer.writeheader()
     writer.writerows(rows)

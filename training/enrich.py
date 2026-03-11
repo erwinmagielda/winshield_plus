@@ -3,15 +3,42 @@ import json
 import os
 import subprocess
 from datetime import datetime, UTC
+import argparse
+
+# ------------------------------------------------------------
+# MODE
+# ------------------------------------------------------------
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--mode", default="training", choices=["training", "runtime"])
+args = parser.parse_args()
+
+# ------------------------------------------------------------
+# PATHS
+# ------------------------------------------------------------
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DATA_DIR = os.path.join(BASE_DIR, "data")
 
-INPUT_CSV = os.path.join(BASE_DIR, "data", "flattened_dataset.csv")
-OUTPUT_CSV = os.path.join(BASE_DIR, "data", "enriched_dataset.csv")
+if args.mode == "runtime":
+    WORK_DIR = os.path.join(DATA_DIR, "runtime")
+    INPUT_CSV = os.path.join(WORK_DIR, "flattened_runtime.csv")
+    OUTPUT_CSV = os.path.join(WORK_DIR, "enriched_runtime.csv")
+else:
+    WORK_DIR = os.path.join(DATA_DIR, "dataset")
+    INPUT_CSV = os.path.join(WORK_DIR, "flattened_dataset.csv")
+    OUTPUT_CSV = os.path.join(WORK_DIR, "enriched_dataset.csv")
+
+os.makedirs(WORK_DIR, exist_ok=True)
+
 POWERSHELL_SCRIPT = os.path.join(BASE_DIR, "src", "powershell", "winshield_metadata.ps1")
 
+# ------------------------------------------------------------
+# CVSS PARSER
+# ------------------------------------------------------------
 
 def parse_cvss_vector(vector: str) -> dict:
+
     if not vector:
         return {}
 
@@ -21,6 +48,7 @@ def parse_cvss_vector(vector: str) -> dict:
     for part in parts:
         if ":" not in part:
             continue
+
         key, value = part.split(":", 1)
         metrics[key] = value
 
@@ -35,7 +63,6 @@ def parse_cvss_vector(vector: str) -> dict:
         "availability_impact": metrics.get("A"),
     }
 
-
 # ------------------------------------------------------------
 # LOAD FLATTENED DATA
 # ------------------------------------------------------------
@@ -45,6 +72,7 @@ unique_months = set()
 
 with open(INPUT_CSV, newline="", encoding="utf-8") as f:
     reader = csv.DictReader(f)
+
     for row in reader:
         rows.append(row)
         unique_months.add(row["month"])
@@ -79,6 +107,7 @@ today = datetime.now(UTC)
 enriched_rows = []
 
 for row in rows:
+
     cve = row["cve_id"]
     meta = cve_metadata.get(cve, {})
 
@@ -89,8 +118,12 @@ for row in rows:
 
     if published_date:
         try:
-            pub_dt = datetime.fromisoformat(published_date.replace("Z", "")).replace(tzinfo=UTC)
+            pub_dt = datetime.fromisoformat(
+                published_date.replace("Z", "")
+            ).replace(tzinfo=UTC)
+
             patch_age_days = (today - pub_dt).days
+
         except:
             pass
 
@@ -110,9 +143,14 @@ for row in rows:
 # WRITE OUTPUT
 # ------------------------------------------------------------
 
+if not enriched_rows:
+    print("No rows after enrichment.")
+    exit()
+
 fieldnames = list(enriched_rows[0].keys())
 
 with open(OUTPUT_CSV, "w", newline="", encoding="utf-8") as f:
+
     writer = csv.DictWriter(f, fieldnames=fieldnames)
     writer.writeheader()
     writer.writerows(enriched_rows)

@@ -1,14 +1,32 @@
 import json
 import os
 import csv
+import argparse
+
+# ------------------------------------------------------------
+# MODE
+# ------------------------------------------------------------
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--mode", default="training", choices=["training", "runtime"])
+args = parser.parse_args()
 
 # ------------------------------------------------------------
 # PATHS
 # ------------------------------------------------------------
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-RAW_DIR = os.path.join(BASE_DIR, "data", "raw_scans")
-OUTPUT_CSV = os.path.join(BASE_DIR, "data", "flattened_dataset.csv")
+DATA_DIR = os.path.join(BASE_DIR, "data")
+RAW_DIR = os.path.join(DATA_DIR, "raw_scans")
+
+if args.mode == "runtime":
+    WORK_DIR = os.path.join(DATA_DIR, "runtime")
+    OUTPUT_CSV = os.path.join(WORK_DIR, "flattened_runtime.csv")
+else:
+    WORK_DIR = os.path.join(DATA_DIR, "dataset")
+    OUTPUT_CSV = os.path.join(WORK_DIR, "flattened_dataset.csv")
+
+os.makedirs(WORK_DIR, exist_ok=True)
 
 # ------------------------------------------------------------
 # FLATTEN LOGIC
@@ -53,7 +71,7 @@ for filename in os.listdir(RAW_DIR):
             ])
 
 # ------------------------------------------------------------
-# WRITE CSV
+# WRITE OUTPUT
 # ------------------------------------------------------------
 
 with open(OUTPUT_CSV, "w", newline="", encoding="utf-8") as csvfile:

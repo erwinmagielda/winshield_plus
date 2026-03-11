@@ -19,7 +19,7 @@ for script in scripts:
         exit(1)
 
     print(f"\nRunning {script}...")
-    result = subprocess.run(["python", script_path])
+    result = subprocess.run(["python", script_path, "--mode", "training"])
 
     if result.returncode != 0:
         print(f"{script} failed. Stopping pipeline.")
