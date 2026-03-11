@@ -17,24 +17,26 @@ args = parser.parse_args()
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.path.join(BASE_DIR, "data")
-RAW_DIR = os.path.join(DATA_DIR, "scans")
 
 if args.mode == "runtime":
+    RAW_DIR = os.path.join(DATA_DIR, "runtime")
     WORK_DIR = os.path.join(DATA_DIR, "runtime")
     OUTPUT_CSV = os.path.join(WORK_DIR, "flattened_runtime.csv")
 else:
+    RAW_DIR = os.path.join(DATA_DIR, "scans")
     WORK_DIR = os.path.join(DATA_DIR, "dataset")
     OUTPUT_CSV = os.path.join(WORK_DIR, "flattened_dataset.csv")
 
 os.makedirs(WORK_DIR, exist_ok=True)
 
 # ------------------------------------------------------------
-# FLATTEN LOGIC
+# FLATTEN
 # ------------------------------------------------------------
 
 rows = []
 
 for filename in os.listdir(RAW_DIR):
+
     if not filename.endswith(".json"):
         continue
 
@@ -54,7 +56,9 @@ for filename in os.listdir(RAW_DIR):
     kb_lookup = {entry["KB"]: entry for entry in kb_entries if "KB" in entry}
 
     for kb in missing_kbs:
+
         entry = kb_lookup.get(kb)
+
         if not entry:
             continue
 
@@ -62,6 +66,7 @@ for filename in os.listdir(RAW_DIR):
         month = months[0] if months else ""
 
         for cve in entry.get("Cves", []):
+
             rows.append([
                 host_id,
                 os_build,
@@ -75,6 +80,7 @@ for filename in os.listdir(RAW_DIR):
 # ------------------------------------------------------------
 
 with open(OUTPUT_CSV, "w", newline="", encoding="utf-8") as csvfile:
+
     writer = csv.writer(csvfile)
 
     writer.writerow([
@@ -87,5 +93,5 @@ with open(OUTPUT_CSV, "w", newline="", encoding="utf-8") as csvfile:
 
     writer.writerows(rows)
 
-print(f"Flattened dataset written to: {OUTPUT_CSV}")
+print(f"Flattened data written to: {OUTPUT_CSV}")
 print(f"Total rows: {len(rows)}")

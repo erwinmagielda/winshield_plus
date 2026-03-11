@@ -19,7 +19,7 @@ DATA_DIR = os.path.join(BASE_DIR, "data")
 
 if args.mode == "runtime":
     WORK_DIR = os.path.join(DATA_DIR, "runtime")
-    INPUT_CSV = os.path.join(WORK_DIR, "labelled_runtime.csv")
+    INPUT_CSV = os.path.join(WORK_DIR, "enriched_runtime.csv")
     OUTPUT_CSV = os.path.join(WORK_DIR, "validated_runtime.csv")
 else:
     WORK_DIR = os.path.join(DATA_DIR, "dataset")
@@ -39,19 +39,29 @@ def is_valid_cve(row):
 
 def has_complete_enrichment(row):
 
-    required_fields = [
-        "cvss_score",
-        "attack_vector",
-        "attack_complexity",
-        "privileges_required",
-        "user_interaction",
-        "scope",
-        "confidentiality_impact",
-        "integrity_impact",
-        "availability_impact",
-        "published_date",
-        "exploited_flag"
-    ]
+    if args.mode == "runtime":
+
+        required_fields = [
+            "cvss_score",
+            "attack_vector",
+            "privileges_required"
+        ]
+
+    else:
+
+        required_fields = [
+            "cvss_score",
+            "attack_vector",
+            "attack_complexity",
+            "privileges_required",
+            "user_interaction",
+            "scope",
+            "confidentiality_impact",
+            "integrity_impact",
+            "availability_impact",
+            "published_date",
+            "exploited_flag"
+        ]
 
     for field in required_fields:
 
