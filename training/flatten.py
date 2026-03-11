@@ -17,7 +17,7 @@ args = parser.parse_args()
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.path.join(BASE_DIR, "data")
-RAW_DIR = os.path.join(DATA_DIR, "raw_scans")
+RAW_DIR = os.path.join(DATA_DIR, "scans")
 
 if args.mode == "runtime":
     WORK_DIR = os.path.join(DATA_DIR, "runtime")
