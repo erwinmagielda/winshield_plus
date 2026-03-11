@@ -25,6 +25,10 @@ POWERSHELL_DIR = os.path.join(ROOT_DIR, "powershell")
 
 RESULTS_DIR = os.path.join(ROOT_DIR, "results")
 DOWNLOADS_DIR = os.path.join(ROOT_DIR, "downloads")
+DATA_DIR = os.path.join(ROOT_DIR, "data")
+RUNTIME_DIR = os.path.join(DATA_DIR, "runtime")
+
+os.makedirs(RUNTIME_DIR, exist_ok=True)
 
 SCAN_RESULT_PATH = os.path.join(RESULTS_DIR, "winshield_scan_result.json")
 
@@ -329,11 +333,26 @@ def main() -> None:
         "MissingKbs": missing,
     }
 
+    # ------------------------------------------------------------
+    # Save primary scan result
+    # ------------------------------------------------------------
+
     with open(SCAN_RESULT_PATH, "w", encoding="utf-8") as h:
         json.dump(result, h, indent=2)
 
     print()
     print(f"[+] Saved scan result to {SCAN_RESULT_PATH}")
+
+    # ------------------------------------------------------------
+    # Export runtime scan for ML pipeline
+    # ------------------------------------------------------------
+
+    runtime_scan_path = os.path.join(RUNTIME_DIR, "scan_runtime.json")
+
+    with open(runtime_scan_path, "w", encoding="utf-8") as f:
+        json.dump(result, f, indent=2)
+
+    print(f"[+] Runtime scan exported to {runtime_scan_path}")
 
 
 if __name__ == "__main__":
