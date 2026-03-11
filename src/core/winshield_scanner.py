@@ -19,20 +19,15 @@ ADAPTER_SCRIPT = "winshield_adapter.ps1"
 
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-ROOT_DIR = os.path.dirname(SCRIPT_DIR)
+ROOT_DIR = os.path.dirname(os.path.dirname(SCRIPT_DIR))
 
-POWERSHELL_DIR = os.path.join(ROOT_DIR, "powershell")
+POWERSHELL_DIR = os.path.join(ROOT_DIR, "src", "powershell")
 
-RESULTS_DIR = os.path.join(ROOT_DIR, "results")
 DOWNLOADS_DIR = os.path.join(ROOT_DIR, "downloads")
 DATA_DIR = os.path.join(ROOT_DIR, "data")
 RUNTIME_DIR = os.path.join(DATA_DIR, "runtime")
 
 os.makedirs(RUNTIME_DIR, exist_ok=True)
-
-SCAN_RESULT_PATH = os.path.join(RESULTS_DIR, "winshield_scan_result.json")
-
-os.makedirs(RESULTS_DIR, exist_ok=True)
 os.makedirs(DOWNLOADS_DIR, exist_ok=True)
 
 
@@ -333,21 +328,17 @@ def main() -> None:
         "MissingKbs": missing,
     }
 
-    # ------------------------------------------------------------
-    # Save primary scan result
-    # ------------------------------------------------------------
-
-    with open(SCAN_RESULT_PATH, "w", encoding="utf-8") as h:
-        json.dump(result, h, indent=2)
-
-    print()
-    print(f"[+] Saved scan result to {SCAN_RESULT_PATH}")
 
     # ------------------------------------------------------------
     # Export runtime scan for ML pipeline
     # ------------------------------------------------------------
 
-    runtime_scan_path = os.path.join(RUNTIME_DIR, "scan_runtime.json")
+    timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
+
+    runtime_scan_path = os.path.join(
+        RUNTIME_DIR,
+        f"scan_{timestamp}.json"
+    )
 
     with open(runtime_scan_path, "w", encoding="utf-8") as f:
         json.dump(result, f, indent=2)
