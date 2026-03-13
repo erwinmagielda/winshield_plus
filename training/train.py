@@ -55,8 +55,17 @@ def train():
 
     print("\n=== Regression Results ===")
     print(f"MAE:  {mae:.4f}")
+    # Mean Absolute Error (MAE)
+    # Average absolute difference between predicted risk scores and the true values.
+    # Lower values indicate better predictive accuracy.
     print(f"RMSE: {rmse:.4f}")
+    # Root Mean Squared Error (RMSE)
+    # Similar to MAE but penalises larger errors more heavily.
+    # Useful for identifying when the model makes large prediction mistakes.
     print(f"R2:   {r2:.4f}")
+    # R² Score (Coefficient of Determination)
+    # Measures how well the model explains variance in the target variable.
+    # 1.0 = perfect prediction, 0 = no predictive power.
 
     # =========================
     # Feature Importance (Regression)

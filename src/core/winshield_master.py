@@ -70,7 +70,7 @@ def run_stage(label: str, path: str) -> int:
     return rc
 
 
-def run_runtime_pipeline() -> None:
+def run_runtime_pipeline() -> int:
 
     pipeline = [
         (FLATTEN_SCRIPT, ["--mode", "runtime"]),
