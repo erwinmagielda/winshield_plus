@@ -3,6 +3,7 @@ WinShield Prioritiser
 
 Uses the already preprocessed runtime dataset to predict
 patch risk using the trained regression model.
+Displays both continuous ML risk score and priority tier.
 """
 
 import os
@@ -33,7 +34,7 @@ MODEL_PATH = os.path.join(MODELS_DIR, "regressor.joblib")
 def load_runtime_data():
 
     if not os.path.exists(RUNTIME_FEATURES):
-        raise RuntimeError("Run winshield_runtime.py first.")
+        raise RuntimeError("Run runtime preprocessing first.")
 
     features = pd.read_csv(RUNTIME_FEATURES)
     metadata = pd.read_csv(RUNTIME_VALIDATED)
@@ -42,6 +43,22 @@ def load_runtime_data():
         raise RuntimeError("Feature and metadata rows do not match.")
 
     return features, metadata
+
+
+# ------------------------------------------------------------
+# Risk tier classification
+# ------------------------------------------------------------
+
+def classify_risk(score):
+
+    if score >= 9:
+        return "Critical"
+    elif score >= 7:
+        return "High"
+    elif score >= 4:
+        return "Medium"
+    else:
+        return "Low"
 
 
 # ------------------------------------------------------------
@@ -59,6 +76,9 @@ def predict_risk(features, metadata):
     predictions = model.predict(features)
 
     metadata["predicted_risk"] = predictions
+
+    # Add categorical risk tier
+    metadata["risk_level"] = metadata["predicted_risk"].apply(classify_risk)
 
     return metadata
 
@@ -97,12 +117,14 @@ def print_kb_breakdown(df):
         max_risk = kb_rows["predicted_risk"].max()
         cve_count = len(kb_rows)
 
-        print(f"{kb} | Max Risk: {max_risk:.2f} | CVEs: {cve_count}")
+        kb_level = classify_risk(max_risk)
+
+        print(f"{kb} | {kb_level} | Max Risk: {max_risk:.2f} | CVEs: {cve_count}")
 
         for _, row in kb_rows.iterrows():
 
             print(
-                f"   ├ {row['cve_id']} | Risk: {row['predicted_risk']:.2f}"
+                f"   ├ {row['cve_id']} | {row['risk_level']} | Risk: {row['predicted_risk']:.2f}"
             )
 
         print()
@@ -121,6 +143,8 @@ def main():
     df = predict_risk(features, metadata)
 
     print_kb_breakdown(df)
+
+    print("[+] Vulnerability prioritisation complete.\n")
 
 
 # ------------------------------------------------------------
