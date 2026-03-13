@@ -101,6 +101,38 @@ def get_kb_order(df):
 
 
 # ------------------------------------------------------------
+# PATCH RECOMMENDATION
+# ------------------------------------------------------------
+
+def print_patch_recommendation(df):
+
+    print("\n=== Patch Remediation Recommendation ===\n")
+
+    kb_scores = (
+        df.groupby("kb_id")["predicted_risk"]
+        .max()
+        .sort_values(ascending=False)
+    )
+
+    rank = 1
+
+    for kb, score in kb_scores.items():
+
+        rows = df[df["kb_id"] == kb]
+
+        level = classify_risk(score)
+        cve_count = len(rows)
+
+        print(
+            f"{rank}. {kb} | {level} | Risk: {score:.2f} | CVEs: {cve_count}"
+        )
+
+        rank += 1
+
+    print("\n")
+
+
+# ------------------------------------------------------------
 # PRINT PRIORITISATION
 # ------------------------------------------------------------
 
@@ -182,6 +214,8 @@ def main():
     df = predict_risk(features, metadata)
 
     print_kb_breakdown(df)
+
+    print_patch_recommendation(df)
 
     save_results(df)
 

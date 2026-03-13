@@ -99,8 +99,6 @@ def run_runtime_pipeline() -> int:
             print("[X] Pipeline stage failed.\n")
             return
 
-    print("\n[+] Vulnerability prioritisation complete.\n")
-
 
 def print_menu() -> None:
 

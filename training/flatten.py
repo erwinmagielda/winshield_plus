@@ -1,16 +1,19 @@
-import json
+"""
+WinShield Flatten
+
+Converts WinShield scan JSON files into a flat CVE dataset
+used by the enrichment and ML pipeline.
+
+Modes
+-----
+training : processes all dataset scans
+runtime  : processes only the newest runtime scan
+"""
+
 import os
-import csv
+import json
 import argparse
-
-
-# ------------------------------------------------------------
-# MODE
-# ------------------------------------------------------------
-
-parser = argparse.ArgumentParser()
-parser.add_argument("--mode", default="training", choices=["training", "runtime"])
-args = parser.parse_args()
+import pandas as pd
 
 
 # ------------------------------------------------------------
@@ -18,75 +21,114 @@ args = parser.parse_args()
 # ------------------------------------------------------------
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DATA_DIR = os.path.join(BASE_DIR, "data")
 
-if args.mode == "runtime":
-    RAW_DIR = os.path.join(DATA_DIR, "runtime")
-    WORK_DIR = os.path.join(DATA_DIR, "runtime")
-    OUTPUT_CSV = os.path.join(WORK_DIR, "flattened_runtime.csv")
-else:
-    RAW_DIR = os.path.join(DATA_DIR, "scans")
-    WORK_DIR = os.path.join(DATA_DIR, "dataset")
-    OUTPUT_CSV = os.path.join(WORK_DIR, "flattened_dataset.csv")
+DATASET_DIR = os.path.join(BASE_DIR, "data", "dataset")
+RUNTIME_DIR = os.path.join(BASE_DIR, "data", "runtime")
 
-os.makedirs(WORK_DIR, exist_ok=True)
+DATASET_OUTPUT = os.path.join(DATASET_DIR, "flattened_dataset.csv")
+RUNTIME_OUTPUT = os.path.join(RUNTIME_DIR, "flattened_runtime.csv")
+
+
+# ------------------------------------------------------------
+# GET LATEST RUNTIME SCAN
+# ------------------------------------------------------------
+
+def get_latest_runtime_scan():
+
+    scans = [
+        os.path.join(RUNTIME_DIR, f)
+        for f in os.listdir(RUNTIME_DIR)
+        if f.startswith("scan_") and f.endswith(".json")
+    ]
+
+    if not scans:
+        raise RuntimeError("No runtime scan files found.")
+
+    return max(scans, key=os.path.getmtime)
+
+
+# ------------------------------------------------------------
+# LOAD SCANS
+# ------------------------------------------------------------
+
+def load_scan_paths(mode):
+
+    if mode == "training":
+
+        scans = [
+            os.path.join(DATASET_DIR, f)
+            for f in os.listdir(DATASET_DIR)
+            if f.endswith(".json")
+        ]
+
+    elif mode == "runtime":
+
+        scans = [get_latest_runtime_scan()]
+
+    else:
+        raise ValueError("Invalid mode")
+
+    if not scans:
+        raise RuntimeError("No scan files found.")
+
+    return scans
 
 
 # ------------------------------------------------------------
 # FLATTEN
 # ------------------------------------------------------------
 
-rows = []
+def flatten_scans(mode):
 
-json_files = [f for f in os.listdir(RAW_DIR) if f.endswith(".json")]
+    scan_files = load_scan_paths(mode)
 
-for filename in json_files:
+    rows = []
 
-    file_path = os.path.join(RAW_DIR, filename)
+    for scan_path in scan_files:
 
-    with open(file_path, "r", encoding="utf-8") as f:
-        data = json.load(f)
+        with open(scan_path, "r", encoding="utf-8") as f:
+            scan = json.load(f)
 
-    host_id = os.path.splitext(filename)[0]
+        kb_entries = scan.get("KbEntries", [])
 
-    baseline = data.get("Baseline", {})
-    os_build = baseline.get("Build", "")
+        for patch in kb_entries:
 
-    missing_kbs = set(data.get("MissingKbs", []))
-    kb_entries = data.get("KbEntries", [])
+            kb = patch.get("KB")
+            months = patch.get("Months", [])
+            cves = patch.get("Cves", [])
 
-    kb_lookup = {entry["KB"]: entry for entry in kb_entries if "KB" in entry}
+            for cve in cves:
 
-    for kb in missing_kbs:
+                for month in months:
 
-        entry = kb_lookup.get(kb)
-        if not entry:
-            continue
+                    rows.append({
+                        "kb_id": kb,
+                        "cve_id": cve,
+                        "month": month
+                    })
 
-        months = entry.get("Months", [])
-        month = months[0] if months else ""
+    df = pd.DataFrame(rows)
 
-        for cve in entry.get("Cves", []):
-            rows.append([host_id, os_build, kb, cve, month])
+    if mode == "training":
+        output_path = DATASET_OUTPUT
+    else:
+        output_path = RUNTIME_OUTPUT
+
+    df.to_csv(output_path, index=False)
+
+    print(f"Flattened data written to: {output_path}")
+    print(f"Total rows: {len(df)}")
 
 
 # ------------------------------------------------------------
-# WRITE OUTPUT
+# ENTRYPOINT
 # ------------------------------------------------------------
 
-with open(OUTPUT_CSV, "w", newline="", encoding="utf-8") as csvfile:
+if __name__ == "__main__":
 
-    writer = csv.writer(csvfile)
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--mode", required=True)
 
-    writer.writerow([
-        "host_id",
-        "os_build",
-        "kb_id",
-        "cve_id",
-        "month"
-    ])
+    args = parser.parse_args()
 
-    writer.writerows(rows)
-
-print(f"Flattened data written to: {OUTPUT_CSV}")
-print(f"Total rows: {len(rows)}")
+    flatten_scans(args.mode)
