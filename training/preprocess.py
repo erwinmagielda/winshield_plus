@@ -7,7 +7,7 @@ from sklearn.compose import ColumnTransformer
 from sklearn.preprocessing import OneHotEncoder
 from sklearn.pipeline import Pipeline
 from sklearn.impute import SimpleImputer
-from sklearn.model_selection import train_test_split
+
 
 # ------------------------------------------------------------
 # MODE
@@ -16,6 +16,7 @@ from sklearn.model_selection import train_test_split
 parser = argparse.ArgumentParser()
 parser.add_argument("--mode", default="training", choices=["training", "runtime"])
 args = parser.parse_args()
+
 
 # ------------------------------------------------------------
 # PATHS
@@ -28,18 +29,16 @@ MODELS_DIR = os.path.join(BASE_DIR, "models")
 os.makedirs(MODELS_DIR, exist_ok=True)
 
 if args.mode == "runtime":
-
     WORK_DIR = os.path.join(DATA_DIR, "runtime")
     INPUT_CSV = os.path.join(WORK_DIR, "validated_runtime.csv")
     OUTPUT_CSV = os.path.join(WORK_DIR, "preprocessed_runtime.csv")
-
 else:
-
     WORK_DIR = os.path.join(DATA_DIR, "dataset")
     INPUT_CSV = os.path.join(WORK_DIR, "validated_dataset.csv")
     OUTPUT_CSV = os.path.join(WORK_DIR, "preprocessed_dataset.csv")
 
 PREPROCESSOR_PATH = os.path.join(MODELS_DIR, "preprocessor.joblib")
+
 
 # ------------------------------------------------------------
 # TRAINING PREPROCESS
@@ -104,6 +103,7 @@ def training_preprocess():
     print(f"Preprocessed dataset written to: {OUTPUT_CSV}")
     print(f"Preprocessor saved to: {PREPROCESSOR_PATH}")
 
+
 # ------------------------------------------------------------
 # RUNTIME PREPROCESS
 # ------------------------------------------------------------
@@ -124,7 +124,6 @@ def runtime_preprocess():
 
     preprocessor = joblib.load(PREPROCESSOR_PATH)
 
-    # Align runtime dataset with training schema
     expected_columns = list(preprocessor.feature_names_in_)
 
     X = X[[c for c in X.columns if c in expected_columns]]
@@ -148,13 +147,18 @@ def runtime_preprocess():
 
     print(f"Runtime features written to: {OUTPUT_CSV}")
 
+
 # ------------------------------------------------------------
 # ENTRYPOINT
 # ------------------------------------------------------------
 
-if __name__ == "__main__":
+def main():
 
     if args.mode == "runtime":
         runtime_preprocess()
     else:
         training_preprocess()
+
+
+if __name__ == "__main__":
+    main()

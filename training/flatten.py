@@ -3,6 +3,7 @@ import os
 import csv
 import argparse
 
+
 # ------------------------------------------------------------
 # MODE
 # ------------------------------------------------------------
@@ -10,6 +11,7 @@ import argparse
 parser = argparse.ArgumentParser()
 parser.add_argument("--mode", default="training", choices=["training", "runtime"])
 args = parser.parse_args()
+
 
 # ------------------------------------------------------------
 # PATHS
@@ -29,16 +31,16 @@ else:
 
 os.makedirs(WORK_DIR, exist_ok=True)
 
+
 # ------------------------------------------------------------
 # FLATTEN
 # ------------------------------------------------------------
 
 rows = []
 
-for filename in os.listdir(RAW_DIR):
+json_files = [f for f in os.listdir(RAW_DIR) if f.endswith(".json")]
 
-    if not filename.endswith(".json"):
-        continue
+for filename in json_files:
 
     file_path = os.path.join(RAW_DIR, filename)
 
@@ -58,7 +60,6 @@ for filename in os.listdir(RAW_DIR):
     for kb in missing_kbs:
 
         entry = kb_lookup.get(kb)
-
         if not entry:
             continue
 
@@ -66,14 +67,8 @@ for filename in os.listdir(RAW_DIR):
         month = months[0] if months else ""
 
         for cve in entry.get("Cves", []):
+            rows.append([host_id, os_build, kb, cve, month])
 
-            rows.append([
-                host_id,
-                os_build,
-                kb,
-                cve,
-                month
-            ])
 
 # ------------------------------------------------------------
 # WRITE OUTPUT

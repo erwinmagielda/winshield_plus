@@ -1,11 +1,43 @@
+<#
+.SYNOPSIS
+    WinShield Metadata
+
+.DESCRIPTION
+    Retrieves vulnerability metadata from Microsoft Security Response Center (MSRC)
+    CVRF documents for the specified MonthIds.
+
+    Extracts CVE severity, CVSS base score, CVSS vector, publication date,
+    and exploitation status.
+
+    Emits a JSON object consumed by enrich.py in the WinShield pipeline.
+#>
+
 param(
-    [Parameter(Mandatory=$true)]
+    [Parameter(Mandatory = $true)]
     [string]$MonthIds
 )
 
-$months = $MonthIds -split ","
+# ------------------------------------------------------------
+# MODULE DEPENDENCY
+# ------------------------------------------------------------
+
+Import-Module MsrcSecurityUpdates -ErrorAction Stop
+
+# ------------------------------------------------------------
+# INPUT NORMALISATION
+# ------------------------------------------------------------
+
+$months = $MonthIds -split "," | ForEach-Object { $_.Trim() } | Where-Object { $_ }
+
+# ------------------------------------------------------------
+# AGGREGATION CONTAINER
+# ------------------------------------------------------------
 
 $results = @{}
+
+# ------------------------------------------------------------
+# PER-MONTH PROCESSING
+# ------------------------------------------------------------
 
 foreach ($month in $months) {
 
@@ -15,21 +47,19 @@ foreach ($month in $months) {
 
         $cve = $v.CVE
 
-        # Severity
-        $severity = ($v.Threats | Where-Object { $_.Type -eq 3 } |
-                     Select-Object -First 1).Description.Value
+        $severity = ($v.Threats |
+            Where-Object { $_.Type -eq 3 } |
+            Select-Object -First 1).Description.Value
 
-        # Exploitation
-        $exploit = ($v.Threats | Where-Object { $_.Type -eq 1 } |
-                    Select-Object -First 1).Description.Value
+        $exploit = ($v.Threats |
+            Where-Object { $_.Type -eq 1 } |
+            Select-Object -First 1).Description.Value
 
-        # CVSS
         $cvss = $v.CVSSScoreSets | Select-Object -First 1
 
         $baseScore = $cvss.BaseScore
         $vector = $cvss.Vector
 
-        # Published date
         $published = ($v.RevisionHistory | Select-Object -First 1).Date
 
         $results[$cve] = @{
@@ -41,5 +71,9 @@ foreach ($month in $months) {
         }
     }
 }
+
+# ------------------------------------------------------------
+# OUTPUT
+# ------------------------------------------------------------
 
 $results | ConvertTo-Json -Depth 5

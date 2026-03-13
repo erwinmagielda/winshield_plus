@@ -41,7 +41,8 @@ if (-not $MonthIds -or -not $ProductNameHint) {
 
 try {
     Import-Module MsrcSecurityUpdates -ErrorAction Stop
-} catch {
+}
+catch {
     [pscustomobject]@{
         Error   = "Failed to load MsrcSecurityUpdates"
         Details = $_.Exception.Message
@@ -66,7 +67,8 @@ foreach ($month in $MonthIds) {
         $aff = Get-MsrcCvrfAffectedSoftware `
             -Vulnerability $doc.Vulnerability `
             -ProductTree $doc.ProductTree
-    } catch {
+    }
+    catch {
         continue
     }
 
@@ -83,6 +85,7 @@ foreach ($month in $MonthIds) {
         }
 
         $supersedes = @()
+
         if ($row.Supercedence) {
             foreach ($s in @($row.Supercedence)) {
                 if ($s -and $s -match '(\d{4,7})') {
@@ -90,14 +93,17 @@ foreach ($month in $MonthIds) {
                 }
             }
         }
+
         $supersedes = $supersedes | Sort-Object -Unique
 
         foreach ($kbObj in @($row.KBArticle)) {
+
             if (-not $kbObj -or -not $kbObj.ID) { continue }
 
             $kb = if ($kbObj.ID -like 'KB*') {
                 $kbObj.ID
-            } else {
+            }
+            else {
                 "KB$($kbObj.ID)"
             }
 

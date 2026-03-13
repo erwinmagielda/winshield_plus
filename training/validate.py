@@ -2,6 +2,7 @@ import csv
 import os
 import argparse
 
+
 # ------------------------------------------------------------
 # MODE
 # ------------------------------------------------------------
@@ -9,6 +10,7 @@ import argparse
 parser = argparse.ArgumentParser()
 parser.add_argument("--mode", default="training", choices=["training", "runtime"])
 args = parser.parse_args()
+
 
 # ------------------------------------------------------------
 # PATHS
@@ -28,40 +30,45 @@ else:
 
 os.makedirs(WORK_DIR, exist_ok=True)
 
+
+# ------------------------------------------------------------
+# REQUIRED FIELDS
+# ------------------------------------------------------------
+
+RUNTIME_REQUIRED = [
+    "cvss_score",
+    "attack_vector",
+    "privileges_required"
+]
+
+TRAINING_REQUIRED = [
+    "cvss_score",
+    "attack_vector",
+    "attack_complexity",
+    "privileges_required",
+    "user_interaction",
+    "scope",
+    "confidentiality_impact",
+    "integrity_impact",
+    "availability_impact",
+    "published_date",
+    "exploited_flag"
+]
+
+
 # ------------------------------------------------------------
 # VALIDATION FUNCTIONS
 # ------------------------------------------------------------
 
 def is_valid_cve(row):
+
     cve = row.get("cve_id", "")
     return cve.startswith("CVE-")
 
 
 def has_complete_enrichment(row):
 
-    if args.mode == "runtime":
-
-        required_fields = [
-            "cvss_score",
-            "attack_vector",
-            "privileges_required"
-        ]
-
-    else:
-
-        required_fields = [
-            "cvss_score",
-            "attack_vector",
-            "attack_complexity",
-            "privileges_required",
-            "user_interaction",
-            "scope",
-            "confidentiality_impact",
-            "integrity_impact",
-            "availability_impact",
-            "published_date",
-            "exploited_flag"
-        ]
+    required_fields = RUNTIME_REQUIRED if args.mode == "runtime" else TRAINING_REQUIRED
 
     for field in required_fields:
 
@@ -99,6 +106,7 @@ with open(INPUT_CSV, newline="", encoding="utf-8") as f:
 
         seen.add(key)
         rows.append(row)
+
 
 # ------------------------------------------------------------
 # WRITE OUTPUT

@@ -1,6 +1,9 @@
 import os
+import json
 import joblib
 import numpy as np
+import pandas as pd
+
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (
@@ -11,35 +14,56 @@ from sklearn.metrics import (
     f1_score,
     classification_report
 )
-from preprocess import load_and_preprocess
+from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-MODEL_DIR = os.path.join(BASE_DIR, "models")
-os.makedirs(MODEL_DIR, exist_ok=True)
 
+# ------------------------------------------------------------
+# PATHS
+# ------------------------------------------------------------
+
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+DATASET_PATH = os.path.join(BASE_DIR, "data", "dataset", "preprocessed_dataset.csv")
+
+MODELS_DIR = os.path.join(BASE_DIR, "models")
+RESULTS_DIR = os.path.join(BASE_DIR, "results")
+
+PREPROCESSOR_PATH = os.path.join(MODELS_DIR, "preprocessor.joblib")
+
+os.makedirs(MODELS_DIR, exist_ok=True)
+os.makedirs(RESULTS_DIR, exist_ok=True)
+
+
+# ------------------------------------------------------------
+# TRAIN
+# ------------------------------------------------------------
 
 def train():
 
-    # --- Load & preprocess ---
-    (
-        X_train,
-        X_test,
-        y_train_reg,
-        y_test_reg,
-        y_train_clf,
-        y_test_clf,
-        preprocessor,
-    ) = load_and_preprocess()
+    df = pd.read_csv(DATASET_PATH)
 
-    # Fit preprocessing on training only
-    X_train_processed = preprocessor.fit_transform(X_train)
-    X_test_processed = preprocessor.transform(X_test)
+    y_reg = df["risk_score"]
+    y_clf = df["priority_label"]
 
-    # =========================
-    # REGRESSION (PRIMARY)
-    # =========================
+    X = df.drop(columns=["risk_score", "priority_label"])
+
+    X_train, X_test, y_train_reg, y_test_reg, y_train_clf, y_test_clf = train_test_split(
+        X,
+        y_reg,
+        y_clf,
+        test_size=0.2,
+        random_state=42
+    )
+
+    X_train_processed = X_train
+    X_test_processed = X_test
+
+
+# ------------------------------------------------------------
+# REGRESSION MODEL
+# ------------------------------------------------------------
 
     reg_model = RandomForestRegressor(
         n_estimators=200,
@@ -47,6 +71,7 @@ def train():
     )
 
     reg_model.fit(X_train_processed, y_train_reg)
+
     reg_preds = reg_model.predict(X_test_processed)
 
     mae = mean_absolute_error(y_test_reg, reg_preds)
@@ -55,25 +80,15 @@ def train():
 
     print("\n=== Regression Results ===")
     print(f"MAE:  {mae:.4f}")
-    # Mean Absolute Error (MAE)
-    # Average absolute difference between predicted risk scores and the true values.
-    # Lower values indicate better predictive accuracy.
     print(f"RMSE: {rmse:.4f}")
-    # Root Mean Squared Error (RMSE)
-    # Similar to MAE but penalises larger errors more heavily.
-    # Useful for identifying when the model makes large prediction mistakes.
     print(f"R2:   {r2:.4f}")
-    # R² Score (Coefficient of Determination)
-    # Measures how well the model explains variance in the target variable.
-    # 1.0 = perfect prediction, 0 = no predictive power.
 
-    # =========================
-    # Feature Importance (Regression)
-    # =========================
 
-    import pandas as pd
+# ------------------------------------------------------------
+# FEATURE IMPORTANCE
+# ------------------------------------------------------------
 
-    feature_names = preprocessor.get_feature_names_out()
+    feature_names = X.columns
     importances = reg_model.feature_importances_
 
     importance_df = pd.DataFrame({
@@ -85,12 +100,12 @@ def train():
     print(importance_df.head(10))
 
 
-    # =========================
-    # CLASSIFICATION (SECONDARY)
-    # =========================
+# ------------------------------------------------------------
+# CLASSIFICATION MODEL
+# ------------------------------------------------------------
 
     clf_pipeline = Pipeline([
-        ("scaler", StandardScaler(with_mean=False)),  # sparse-safe
+        ("scaler", StandardScaler(with_mean=False)),
         ("classifier", LogisticRegression(
             max_iter=2000,
             class_weight="balanced",
@@ -99,6 +114,7 @@ def train():
     ])
 
     clf_pipeline.fit(X_train_processed, y_train_clf)
+
     clf_preds = clf_pipeline.predict(X_test_processed)
 
     acc = accuracy_score(y_test_clf, clf_preds)
@@ -111,16 +127,50 @@ def train():
     print(classification_report(y_test_clf, clf_preds))
 
 
-    # =========================
-    # Save artefacts
-    # =========================
+# ------------------------------------------------------------
+# SAVE MODELS
+# ------------------------------------------------------------
 
-    joblib.dump(preprocessor, os.path.join(MODEL_DIR, "preprocessor.joblib"))
-    joblib.dump(reg_model, os.path.join(MODEL_DIR, "regressor.joblib"))
-    joblib.dump(clf_pipeline, os.path.join(MODEL_DIR, "classifier.joblib"))
+    joblib.dump(reg_model, os.path.join(MODELS_DIR, "regressor.joblib"))
+    joblib.dump(clf_pipeline, os.path.join(MODELS_DIR, "classifier.joblib"))
 
     print("\nModels saved to /models directory.")
 
+
+# ------------------------------------------------------------
+# SAVE TRAINING SUMMARY
+# ------------------------------------------------------------
+
+    summary = {
+        "dataset": {
+            "train_samples": int(len(X_train)),
+            "test_samples": int(len(X_test))
+        },
+        "regression": {
+            "model": "RandomForestRegressor",
+            "mae": float(mae),
+            "rmse": float(rmse),
+            "r2": float(r2)
+        },
+        "classification": {
+            "model": "LogisticRegression",
+            "accuracy": float(acc),
+            "f1_score": float(f1)
+        },
+        "top_features": importance_df.head(10).to_dict(orient="records")
+    }
+
+    summary_path = os.path.join(RESULTS_DIR, "training_summary.json")
+
+    with open(summary_path, "w") as f:
+        json.dump(summary, f, indent=4)
+
+    print(f"\nTraining summary saved to: {summary_path}")
+
+
+# ------------------------------------------------------------
+# ENTRYPOINT
+# ------------------------------------------------------------
 
 if __name__ == "__main__":
     train()

@@ -2,6 +2,7 @@ import csv
 import os
 import argparse
 
+
 # ------------------------------------------------------------
 # MODE
 # ------------------------------------------------------------
@@ -10,6 +11,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--mode", default="training", choices=["training", "runtime"])
 args = parser.parse_args()
 
+
 # ------------------------------------------------------------
 # SKIP LABEL IN RUNTIME
 # ------------------------------------------------------------
@@ -17,6 +19,7 @@ args = parser.parse_args()
 if args.mode == "runtime":
     print("Label stage skipped in runtime mode.")
     exit()
+
 
 # ------------------------------------------------------------
 # PATHS
@@ -31,6 +34,7 @@ OUTPUT_CSV = os.path.join(WORK_DIR, "labelled_dataset.csv")
 
 os.makedirs(WORK_DIR, exist_ok=True)
 
+
 # ------------------------------------------------------------
 # RISK SCORE
 # ------------------------------------------------------------
@@ -39,10 +43,12 @@ def compute_risk_score(row):
 
     score = 0.0
 
-    try:
-        score += float(row["cvss_score"])
-    except:
-        pass
+    cvss = row.get("cvss_score")
+    if cvss:
+        try:
+            score += float(cvss)
+        except:
+            pass
 
     exploited_flag = 1 if "Exploited:Yes" in row.get("exploitation", "") else 0
     score += exploited_flag * 2
@@ -59,14 +65,19 @@ def compute_risk_score(row):
     elif pr == "L":
         score += 0.5
 
-    try:
-        age = float(row.get("patch_age_days", 0))
-        score += age / 60
-    except:
-        pass
+    age = row.get("patch_age_days")
+    if age:
+        try:
+            score += float(age) / 60
+        except:
+            pass
 
     return round(score, 2), exploited_flag
 
+
+# ------------------------------------------------------------
+# PRIORITY LABEL
+# ------------------------------------------------------------
 
 def assign_priority(score):
 
@@ -76,6 +87,7 @@ def assign_priority(score):
         return "Medium"
     else:
         return "Low"
+
 
 # ------------------------------------------------------------
 # PROCESS
@@ -100,9 +112,14 @@ with open(INPUT_CSV, newline="", encoding="utf-8") as f:
 
         rows.append(row)
 
+
 # ------------------------------------------------------------
 # WRITE
 # ------------------------------------------------------------
+
+if not rows:
+    print("No rows to label.")
+    exit()
 
 fieldnames = list(rows[0].keys())
 

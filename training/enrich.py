@@ -5,6 +5,7 @@ import subprocess
 from datetime import datetime, UTC
 import argparse
 
+
 # ------------------------------------------------------------
 # MODE
 # ------------------------------------------------------------
@@ -12,6 +13,7 @@ import argparse
 parser = argparse.ArgumentParser()
 parser.add_argument("--mode", default="training", choices=["training", "runtime"])
 args = parser.parse_args()
+
 
 # ------------------------------------------------------------
 # PATHS
@@ -33,6 +35,7 @@ os.makedirs(WORK_DIR, exist_ok=True)
 
 POWERSHELL_SCRIPT = os.path.join(BASE_DIR, "src", "powershell", "winshield_metadata.ps1")
 
+
 # ------------------------------------------------------------
 # CVSS PARSER
 # ------------------------------------------------------------
@@ -42,15 +45,12 @@ def parse_cvss_vector(vector: str) -> dict:
     if not vector:
         return {}
 
-    parts = vector.split("/")
     metrics = {}
 
-    for part in parts:
-        if ":" not in part:
-            continue
-
-        key, value = part.split(":", 1)
-        metrics[key] = value
+    for part in vector.split("/"):
+        if ":" in part:
+            key, value = part.split(":", 1)
+            metrics[key] = value
 
     return {
         "attack_vector": metrics.get("AV"),
@@ -63,6 +63,7 @@ def parse_cvss_vector(vector: str) -> dict:
         "availability_impact": metrics.get("A"),
     }
 
+
 # ------------------------------------------------------------
 # LOAD FLATTENED DATA
 # ------------------------------------------------------------
@@ -71,6 +72,7 @@ rows = []
 unique_months = set()
 
 with open(INPUT_CSV, newline="", encoding="utf-8") as f:
+
     reader = csv.DictReader(f)
 
     for row in reader:
@@ -80,16 +82,19 @@ with open(INPUT_CSV, newline="", encoding="utf-8") as f:
 print(f"Rows: {len(rows)}")
 print(f"Months queried: {len(unique_months)}")
 
+
 # ------------------------------------------------------------
-# FETCH METADATA FROM POWERSHELL
+# FETCH METADATA
 # ------------------------------------------------------------
+
+month_ids = ",".join(m for m in unique_months if m)
 
 cmd = [
     "powershell.exe",
     "-NoProfile",
     "-ExecutionPolicy", "Bypass",
     "-File", POWERSHELL_SCRIPT,
-    "-MonthIds", ",".join(unique_months)
+    "-MonthIds", month_ids
 ]
 
 result = subprocess.run(cmd, capture_output=True, text=True)
@@ -98,6 +103,7 @@ if result.returncode != 0:
     raise RuntimeError(result.stderr)
 
 cve_metadata = json.loads(result.stdout)
+
 
 # ------------------------------------------------------------
 # ENRICH
@@ -117,6 +123,7 @@ for row in rows:
     patch_age_days = None
 
     if published_date:
+
         try:
             pub_dt = datetime.fromisoformat(
                 published_date.replace("Z", "")
@@ -138,6 +145,7 @@ for row in rows:
     }
 
     enriched_rows.append(enriched_row)
+
 
 # ------------------------------------------------------------
 # WRITE OUTPUT

@@ -20,6 +20,7 @@ function Get-WinShieldLatestMsrcMonthId {
         if (-not $attr -or -not $attr.ValidValues) { return $null }
 
         $parsed = foreach ($id in $attr.ValidValues) {
+
             if (-not $id) { continue }
 
             $parts = $id -split '-', 2
@@ -28,14 +29,19 @@ function Get-WinShieldLatestMsrcMonthId {
             $normMonth = $parts[1].Substring(0,1).ToUpper() + $parts[1].Substring(1).ToLower()
 
             try {
+
                 $dt = [datetime]::ParseExact(
                     "$($parts[0])-$normMonth",
                     'yyyy-MMM',
                     [System.Globalization.CultureInfo]::InvariantCulture
                 )
-                [pscustomobject]@{ Id = $id; Date = $dt }
-            } catch {
-            }
+
+                [pscustomobject]@{
+                    Id   = $id
+                    Date = $dt
+                }
+
+            } catch {}
         }
 
         if (-not $parsed) { return $null }
@@ -47,6 +53,7 @@ function Get-WinShieldLatestMsrcMonthId {
     }
 }
 
+
 function Get-WinShieldProductNameHint {
 
     param(
@@ -55,6 +62,7 @@ function Get-WinShieldProductNameHint {
     )
 
     try {
+
         Import-Module MsrcSecurityUpdates -ErrorAction Stop
 
         $os = Get-CimInstance Win32_OperatingSystem
@@ -86,6 +94,7 @@ function Get-WinShieldProductNameHint {
         if (-not $windowsNames) { return $null }
 
         if ($displayVersion) {
+
             $target = if ($archToken -eq '32-bit') {
                 "$family Version $displayVersion for 32-bit Systems"
             } else {
@@ -145,7 +154,7 @@ $principal = New-Object Security.Principal.WindowsPrincipal($identity)
 $isAdmin   = $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 
 # ------------------------------------------------------------
-# LCU ANCHOR (ADMIN ONLY)
+# LCU ANCHOR
 # ------------------------------------------------------------
 
 $lcuMonthId     = $null
@@ -153,7 +162,9 @@ $lcuPackageName = $null
 $lcuInstallTime = $null
 
 if ($isAdmin) {
+
     try {
+
         $pkg = Get-WindowsPackage -Online |
             Where-Object { $_.PackageName -like "*RollupFix*" } |
             Sort-Object InstallTime -Descending |
@@ -164,8 +175,8 @@ if ($isAdmin) {
             $lcuInstallTime = $pkg.InstallTime
             $lcuMonthId     = (Get-Date $pkg.InstallTime).ToString("yyyy-MMM")
         }
-    } catch {
-    }
+
+    } catch {}
 }
 
 # ------------------------------------------------------------
@@ -175,6 +186,7 @@ if ($isAdmin) {
 $msrcLatestMonthId = Get-WinShieldLatestMsrcMonthId
 
 $productNameHint = $null
+
 if ($msrcLatestMonthId) {
     $productNameHint = Get-WinShieldProductNameHint -MonthId $msrcLatestMonthId
 }
@@ -184,6 +196,7 @@ if ($msrcLatestMonthId) {
 # ------------------------------------------------------------
 
 [pscustomobject]@{
+
     OsName            = $os.Caption
     OsEdition         = $cv.EditionID
     DisplayVersion    = $cv.DisplayVersion
@@ -197,4 +210,5 @@ if ($msrcLatestMonthId) {
 
     MsrcLatestMonthId = $msrcLatestMonthId
     ProductNameHint   = $productNameHint
+
 } | ConvertTo-Json -Depth 4

@@ -7,12 +7,13 @@ Displays both continuous ML risk score and priority tier.
 """
 
 import os
+import json
 import pandas as pd
 import joblib
 
 
 # ------------------------------------------------------------
-# Paths
+# PATHS
 # ------------------------------------------------------------
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -20,15 +21,19 @@ ROOT_DIR = os.path.dirname(os.path.dirname(SCRIPT_DIR))
 
 RUNTIME_DIR = os.path.join(ROOT_DIR, "data", "runtime")
 MODELS_DIR = os.path.join(ROOT_DIR, "models")
+RESULTS_DIR = os.path.join(ROOT_DIR, "results")
+
+os.makedirs(RESULTS_DIR, exist_ok=True)
 
 RUNTIME_FEATURES = os.path.join(RUNTIME_DIR, "preprocessed_runtime.csv")
 RUNTIME_VALIDATED = os.path.join(RUNTIME_DIR, "validated_runtime.csv")
 
 MODEL_PATH = os.path.join(MODELS_DIR, "regressor.joblib")
+RESULTS_PATH = os.path.join(RESULTS_DIR, "ranking_results.json")
 
 
 # ------------------------------------------------------------
-# Load runtime datasets
+# LOAD RUNTIME DATA
 # ------------------------------------------------------------
 
 def load_runtime_data():
@@ -46,7 +51,7 @@ def load_runtime_data():
 
 
 # ------------------------------------------------------------
-# Risk tier classification
+# RISK CLASSIFICATION
 # ------------------------------------------------------------
 
 def classify_risk(score):
@@ -62,29 +67,26 @@ def classify_risk(score):
 
 
 # ------------------------------------------------------------
-# Predict risk
+# PREDICT RISK
 # ------------------------------------------------------------
 
 def predict_risk(features, metadata):
 
     model = joblib.load(MODEL_PATH)
 
-    # Ensure feature count matches model
     expected = model.n_features_in_
     features = features.iloc[:, :expected]
 
     predictions = model.predict(features)
 
     metadata["predicted_risk"] = predictions
-
-    # Add categorical risk tier
     metadata["risk_level"] = metadata["predicted_risk"].apply(classify_risk)
 
     return metadata
 
 
 # ------------------------------------------------------------
-# Aggregate KB priority
+# KB ORDER
 # ------------------------------------------------------------
 
 def get_kb_order(df):
@@ -99,7 +101,7 @@ def get_kb_order(df):
 
 
 # ------------------------------------------------------------
-# Print prioritisation
+# PRINT PRIORITISATION
 # ------------------------------------------------------------
 
 def print_kb_breakdown(df):
@@ -131,7 +133,44 @@ def print_kb_breakdown(df):
 
 
 # ------------------------------------------------------------
-# Main
+# SAVE RESULTS
+# ------------------------------------------------------------
+
+def save_results(df):
+
+    output = []
+
+    for kb, rows in df.groupby("kb_id"):
+
+        max_risk = rows["predicted_risk"].max()
+
+        entry = {
+            "kb_id": kb,
+            "max_risk": float(max_risk),
+            "risk_level": classify_risk(max_risk),
+            "cves": []
+        }
+
+        for _, r in rows.iterrows():
+
+            entry["cves"].append({
+                "cve_id": r["cve_id"],
+                "risk_score": float(r["predicted_risk"]),
+                "risk_level": r["risk_level"]
+            })
+
+        output.append(entry)
+
+    output = sorted(output, key=lambda x: x["max_risk"], reverse=True)
+
+    with open(RESULTS_PATH, "w") as f:
+        json.dump(output, f, indent=4)
+
+    print(f"[+] Ranking results saved to: {RESULTS_PATH}")
+
+
+# ------------------------------------------------------------
+# MAIN
 # ------------------------------------------------------------
 
 def main():
@@ -144,9 +183,13 @@ def main():
 
     print_kb_breakdown(df)
 
+    save_results(df)
+
     print("[+] Vulnerability prioritisation complete.\n")
 
 
+# ------------------------------------------------------------
+# ENTRYPOINT
 # ------------------------------------------------------------
 
 if __name__ == "__main__":
