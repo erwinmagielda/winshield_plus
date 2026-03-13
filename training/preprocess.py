@@ -124,6 +124,17 @@ def runtime_preprocess():
 
     preprocessor = joblib.load(PREPROCESSOR_PATH)
 
+    # Align runtime dataset with training schema
+    expected_columns = list(preprocessor.feature_names_in_)
+
+    X = X[[c for c in X.columns if c in expected_columns]]
+
+    for col in expected_columns:
+        if col not in X.columns:
+            X[col] = 0
+
+    X = X[expected_columns]
+
     X_processed = preprocessor.transform(X)
 
     feature_names = preprocessor.get_feature_names_out()

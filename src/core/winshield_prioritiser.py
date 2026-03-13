@@ -50,9 +50,11 @@ def load_runtime_data():
 
 def predict_risk(features, metadata):
 
-    print("Loading regression model...")
-
     model = joblib.load(MODEL_PATH)
+
+    # Ensure feature count matches model
+    expected = model.n_features_in_
+    features = features.iloc[:, :expected]
 
     predictions = model.predict(features)
 
