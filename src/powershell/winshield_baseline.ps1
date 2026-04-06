@@ -7,6 +7,10 @@
     Emits a stable JSON object consumed by winshield_scanner.py.
 #>
 
+# ------------------------------------------------------------
+# MSRC: LATEST MONTH RESOLUTION
+# ------------------------------------------------------------
+
 function Get-WinShieldLatestMsrcMonthId {
 
     try {
@@ -29,7 +33,6 @@ function Get-WinShieldLatestMsrcMonthId {
             $normMonth = $parts[1].Substring(0,1).ToUpper() + $parts[1].Substring(1).ToLower()
 
             try {
-
                 $dt = [datetime]::ParseExact(
                     "$($parts[0])-$normMonth",
                     'yyyy-MMM',
@@ -53,6 +56,9 @@ function Get-WinShieldLatestMsrcMonthId {
     }
 }
 
+# ------------------------------------------------------------
+# MSRC: PRODUCT RESOLUTION (SINGLE MONTH)
+# ------------------------------------------------------------
 
 function Get-WinShieldProductNameHint {
 
@@ -93,6 +99,7 @@ function Get-WinShieldProductNameHint {
 
         if (-not $windowsNames) { return $null }
 
+        # --- EXACT MATCH (case-insensitive)
         if ($displayVersion) {
 
             $target = if ($archToken -eq '32-bit') {
@@ -101,19 +108,21 @@ function Get-WinShieldProductNameHint {
                 "$family Version $displayVersion for $archToken-based Systems"
             }
 
-            $hit = $windowsNames | Where-Object { $_ -eq $target } | Select-Object -First 1
+            $hit = $windowsNames | Where-Object { $_ -ieq $target } | Select-Object -First 1
             if ($hit) { return $hit }
         }
 
+        # --- GENERIC MATCH
         $target = if ($archToken -eq '32-bit') {
             "$family for 32-bit Systems"
         } else {
             "$family for $archToken-based Systems"
         }
 
-        $hit = $windowsNames | Where-Object { $_ -eq $target } | Select-Object -First 1
+        $hit = $windowsNames | Where-Object { $_ -ieq $target } | Select-Object -First 1
         if ($hit) { return $hit }
 
+        # --- FUZZY MATCH
         if ($archToken -eq '32-bit') {
             $hit = $windowsNames | Where-Object { $_ -like "$family*32-bit*" } | Select-Object -First 1
         } else {
@@ -122,6 +131,7 @@ function Get-WinShieldProductNameHint {
 
         if ($hit) { return $hit }
 
+        # --- FINAL FALLBACK
         return ($windowsNames | Where-Object { $_ -like "$family*" } | Select-Object -First 1)
     }
     catch {
@@ -162,9 +172,7 @@ $lcuPackageName = $null
 $lcuInstallTime = $null
 
 if ($isAdmin) {
-
     try {
-
         $pkg = Get-WindowsPackage -Online |
             Where-Object { $_.PackageName -like "*RollupFix*" } |
             Sort-Object InstallTime -Descending |
@@ -175,20 +183,38 @@ if ($isAdmin) {
             $lcuInstallTime = $pkg.InstallTime
             $lcuMonthId     = (Get-Date $pkg.InstallTime).ToString("yyyy-MMM")
         }
-
     } catch {}
 }
 
 # ------------------------------------------------------------
-# MSRC RESOLUTION
+# MSRC RESOLUTION (WITH MONTH FALLBACK)
 # ------------------------------------------------------------
 
 $msrcLatestMonthId = Get-WinShieldLatestMsrcMonthId
 
 $productNameHint = $null
+$resolvedMonthId = $null
 
 if ($msrcLatestMonthId) {
-    $productNameHint = Get-WinShieldProductNameHint -MonthId $msrcLatestMonthId
+
+    $current = [datetime]::ParseExact(
+        $msrcLatestMonthId,
+        'yyyy-MMM',
+        [System.Globalization.CultureInfo]::InvariantCulture
+    )
+
+    for ($i = 0; $i -lt 6; $i++) {
+
+        $monthId = $current.AddMonths(-$i).ToString("yyyy-MMM")
+
+        $candidate = Get-WinShieldProductNameHint -MonthId $monthId
+
+        if ($candidate) {
+            $productNameHint = $candidate
+            $resolvedMonthId = $monthId
+            break
+        }
+    }
 }
 
 # ------------------------------------------------------------
@@ -197,18 +223,19 @@ if ($msrcLatestMonthId) {
 
 [pscustomobject]@{
 
-    OsName            = $os.Caption
-    OsEdition         = $cv.EditionID
-    DisplayVersion    = $cv.DisplayVersion
-    Build             = $buildString
-    Architecture      = $arch
-    IsAdmin           = $isAdmin
+    OsName                  = $os.Caption
+    OsEdition               = $cv.EditionID
+    DisplayVersion          = $cv.DisplayVersion
+    Build                   = $buildString
+    Architecture            = $arch
+    IsAdmin                 = $isAdmin
 
-    LcuMonthId        = $lcuMonthId
-    LcuPackageName    = $lcuPackageName
-    LcuInstallTime    = $lcuInstallTime
+    LcuMonthId              = $lcuMonthId
+    LcuPackageName          = $lcuPackageName
+    LcuInstallTime          = $lcuInstallTime
 
-    MsrcLatestMonthId = $msrcLatestMonthId
-    ProductNameHint   = $productNameHint
+    MsrcLatestMonthId       = $msrcLatestMonthId
+    ResolvedProductMonthId  = $resolvedMonthId
+    ProductNameHint         = $productNameHint
 
 } | ConvertTo-Json -Depth 4
