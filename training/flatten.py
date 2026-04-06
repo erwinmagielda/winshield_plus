@@ -6,8 +6,8 @@ used by the enrichment and ML pipeline.
 
 Modes
 -----
-training : processes all dataset scans
-runtime  : processes only the newest runtime scan
+training : processes all scans from data/scans
+runtime  : processes only the newest scan from data/runtime
 """
 
 import os
@@ -17,16 +17,30 @@ import pandas as pd
 
 
 # ------------------------------------------------------------
+# MODE
+# ------------------------------------------------------------
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--mode", default="training", choices=["training", "runtime"])
+args = parser.parse_args()
+
+
+# ------------------------------------------------------------
 # PATHS
 # ------------------------------------------------------------
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DATA_DIR = os.path.join(BASE_DIR, "data")
 
-DATASET_DIR = os.path.join(BASE_DIR, "data", "dataset")
-RUNTIME_DIR = os.path.join(BASE_DIR, "data", "runtime")
+SCANS_DIR = os.path.join(DATA_DIR, "scans")      
+RUNTIME_DIR = os.path.join(DATA_DIR, "runtime")   
+DATASET_DIR = os.path.join(DATA_DIR, "dataset")   
 
 DATASET_OUTPUT = os.path.join(DATASET_DIR, "flattened_dataset.csv")
 RUNTIME_OUTPUT = os.path.join(RUNTIME_DIR, "flattened_runtime.csv")
+
+os.makedirs(DATASET_DIR, exist_ok=True)
+os.makedirs(RUNTIME_DIR, exist_ok=True)
 
 
 # ------------------------------------------------------------
@@ -56,8 +70,8 @@ def load_scan_paths(mode):
     if mode == "training":
 
         scans = [
-            os.path.join(DATASET_DIR, f)
-            for f in os.listdir(DATASET_DIR)
+            os.path.join(SCANS_DIR, f)
+            for f in os.listdir(SCANS_DIR)
             if f.endswith(".json")
         ]
 
@@ -69,7 +83,7 @@ def load_scan_paths(mode):
         raise ValueError("Invalid mode")
 
     if not scans:
-        raise RuntimeError("No scan files found.")
+        raise RuntimeError(f"No scan files found for mode: {mode}")
 
     return scans
 
@@ -97,27 +111,30 @@ def flatten_scans(mode):
             months = patch.get("Months", [])
             cves = patch.get("Cves", [])
 
+            # skip invalid entries
+            if not kb or not cves or not months:
+                continue
+
             for cve in cves:
-
                 for month in months:
-
                     rows.append({
                         "kb_id": kb,
                         "cve_id": cve,
                         "month": month
                     })
 
+    if not rows:
+        raise RuntimeError("No rows generated during flattening.")
+
     df = pd.DataFrame(rows)
 
-    if mode == "training":
-        output_path = DATASET_OUTPUT
-    else:
-        output_path = RUNTIME_OUTPUT
+    output_path = DATASET_OUTPUT if mode == "training" else RUNTIME_OUTPUT
 
     df.to_csv(output_path, index=False)
 
-    print(f"Flattened data written to: {output_path}")
-    print(f"Total rows: {len(df)}")
+    print(f"[+] Flatten complete ({mode})")
+    print(f"[+] Output: {output_path}")
+    print(f"[+] Rows: {len(df)}")
 
 
 # ------------------------------------------------------------
@@ -125,10 +142,4 @@ def flatten_scans(mode):
 # ------------------------------------------------------------
 
 if __name__ == "__main__":
-
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--mode", required=True)
-
-    args = parser.parse_args()
-
     flatten_scans(args.mode)
