@@ -1,12 +1,10 @@
 """
 WinShield Prioritiser
 
-Uses the already preprocessed runtime dataset to predict
-patch risk using BOTH:
-- Regression model → numeric risk score
-- Classification model → priority label
-
-Displays both outputs clearly.
+Uses runtime data + trained models:
+- Regression → ranking
+- Classification → label
+- Clustering → behavioural grouping
 """
 
 import os
@@ -33,65 +31,110 @@ RUNTIME_VALIDATED = os.path.join(RUNTIME_DIR, "validated_runtime.csv")
 
 REGRESSOR_PATH = os.path.join(MODELS_DIR, "regressor.joblib")
 CLASSIFIER_PATH = os.path.join(MODELS_DIR, "classifier.joblib")
+CLUSTER_PATH = os.path.join(MODELS_DIR, "clusterer.joblib")
+SCALER_PATH = os.path.join(MODELS_DIR, "cluster_scaler.joblib")
 
 RESULTS_PATH = os.path.join(RESULTS_DIR, "ranking_results.json")
 
 
 # ------------------------------------------------------------
-# LOAD RUNTIME DATA
+# LOAD DATA
 # ------------------------------------------------------------
 
 def load_runtime_data():
 
     if not os.path.exists(RUNTIME_FEATURES):
-        raise RuntimeError("Run runtime preprocessing first.")
+        raise RuntimeError("Run preprocess first.")
 
     features = pd.read_csv(RUNTIME_FEATURES)
     metadata = pd.read_csv(RUNTIME_VALIDATED)
 
     if len(features) != len(metadata):
-        raise RuntimeError("Feature and metadata rows do not match.")
+        raise RuntimeError("Feature and metadata mismatch.")
 
     return features, metadata
 
 
 # ------------------------------------------------------------
-# PREDICT (REGRESSION + CLASSIFICATION)
+# PREDICT
 # ------------------------------------------------------------
 
-def predict_risk(features, metadata):
+def predict(features, metadata):
 
     regressor = joblib.load(REGRESSOR_PATH)
     classifier = joblib.load(CLASSIFIER_PATH)
+    clusterer = joblib.load(CLUSTER_PATH)
+    scaler = joblib.load(SCALER_PATH)
 
-    expected = regressor.n_features_in_
-    features = features.iloc[:, :expected]
+    # ensure correct feature count
+    features = features.iloc[:, :regressor.n_features_in_]
 
-    # --- regression ---
+    # regression
     reg_preds = regressor.predict(features)
 
-    # --- classification ---
+    # classification
     clf_preds = classifier.predict(features)
 
-    metadata["regression_score"] = reg_preds
-    metadata["classification_label"] = clf_preds
+    # clustering (scaled!)
+    scaled = scaler.transform(features)
+    clusters = clusterer.predict(scaled)
+
+    metadata["regression"] = reg_preds
+    metadata["classification"] = clf_preds
+    metadata["cluster"] = clusters
 
     return metadata
 
 
 # ------------------------------------------------------------
-# KB ORDER (BASED ON REGRESSION)
+# ORDER KBs
 # ------------------------------------------------------------
 
 def get_kb_order(df):
 
-    kb_scores = (
-        df.groupby("kb_id")["regression_score"]
+    return (
+        df.groupby("kb_id")["regression"]
         .max()
         .sort_values(ascending=False)
+        .index
     )
 
-    return kb_scores.index
+
+# ------------------------------------------------------------
+# PRINT PRIORITY
+# ------------------------------------------------------------
+
+def print_kb_breakdown(df):
+
+    print("\n=== Patch Priority ===\n")
+
+    df_sorted = df.sort_values("regression", ascending=False)
+    kb_order = get_kb_order(df_sorted)
+
+    for kb in kb_order:
+
+        kb_rows = df_sorted[df_sorted["kb_id"] == kb]
+
+        max_risk = kb_rows["regression"].max()
+        cluster = kb_rows["cluster"].mode()[0]
+        label = kb_rows["classification"].mode()[0]
+
+        print(
+            f"{kb} | Cluster: {cluster} | "
+            f"Classification: {label} | "
+            f"Max Regression: {max_risk:.2f} | "
+            f"CVEs: {len(kb_rows)}"
+        )
+
+        for _, row in kb_rows.iterrows():
+            print(
+                f"   ├ {row['cve_id']} | "
+                f"Cluster: {row['cluster']} | "
+                f"Classification: {row['classification']} | "
+                f"Regression: {row['regression']:.2f}"
+            )
+
+        print()
 
 
 # ------------------------------------------------------------
@@ -103,69 +146,26 @@ def print_patch_recommendation(df):
     print("\n=== Patch Remediation Recommendation ===\n")
 
     kb_scores = (
-        df.groupby("kb_id")["regression_score"]
+        df.groupby("kb_id")["regression"]
         .max()
         .sort_values(ascending=False)
     )
 
-    rank = 1
-
-    for kb, score in kb_scores.items():
+    for i, (kb, score) in enumerate(kb_scores.items(), start=1):
 
         rows = df[df["kb_id"] == kb]
 
-        level = rows["classification_label"].mode()[0]
-        cve_count = len(rows)
+        cluster = rows["cluster"].mode()[0]
+        label = rows["classification"].mode()[0]
 
         print(
-            f"{rank}. {kb} | "
-            f"Classification: {level} | "
+            f"{i}. {kb} | Cluster: {cluster} | "
+            f"Classification: {label} | "
             f"Regression: {score:.2f} | "
-            f"CVEs: {cve_count}"
+            f"CVEs: {len(rows)}"
         )
 
-        rank += 1
-
-    print("\n")
-
-
-# ------------------------------------------------------------
-# PRINT PRIORITISATION
-# ------------------------------------------------------------
-
-def print_kb_breakdown(df):
-
-    print("\n=== Patch Priority ===\n")
-
-    df_sorted = df.sort_values("regression_score", ascending=False)
-
-    kb_order = get_kb_order(df_sorted)
-
-    for kb in kb_order:
-
-        kb_rows = df_sorted[df_sorted["kb_id"] == kb]
-
-        max_risk = kb_rows["regression_score"].max()
-        cve_count = len(kb_rows)
-
-        kb_level = kb_rows["classification_label"].mode()[0]
-
-        print(
-            f"{kb} | "
-            f"Classification: {kb_level} | "
-            f"Max Regression: {max_risk:.2f} | "
-            f"CVEs: {cve_count}"
-        )
-
-        for _, row in kb_rows.iterrows():
-
-            print(
-                f"   ├ {row['cve_id']} | "
-                f"Classification: {row['classification_label']} | "
-                f"Regression: {row['regression_score']:.2f}"
-            )
-
-        print()
+    print()
 
 
 # ------------------------------------------------------------
@@ -178,21 +178,20 @@ def save_results(df):
 
     for kb, rows in df.groupby("kb_id"):
 
-        max_risk = rows["regression_score"].max()
-
         entry = {
             "kb_id": kb,
-            "max_regression": float(max_risk),
-            "classification": rows["classification_label"].mode()[0],
+            "max_regression": float(rows["regression"].max()),
+            "classification": rows["classification"].mode()[0],
+            "cluster": int(rows["cluster"].mode()[0]),
             "cves": []
         }
 
         for _, r in rows.iterrows():
-
             entry["cves"].append({
                 "cve_id": r["cve_id"],
-                "regression_score": float(r["regression_score"]),
-                "classification": r["classification_label"]
+                "regression": float(r["regression"]),
+                "classification": r["classification"],
+                "cluster": int(r["cluster"])
             })
 
         output.append(entry)
@@ -202,7 +201,7 @@ def save_results(df):
     with open(RESULTS_PATH, "w") as f:
         json.dump(output, f, indent=4)
 
-    print(f"[+] Ranking results saved to: {RESULTS_PATH}")
+    print(f"[+] Results saved → {RESULTS_PATH}")
 
 
 # ------------------------------------------------------------
@@ -215,15 +214,13 @@ def main():
 
     features, metadata = load_runtime_data()
 
-    df = predict_risk(features, metadata)
+    df = predict(features, metadata)
 
     print_kb_breakdown(df)
-
     print_patch_recommendation(df)
-
     save_results(df)
 
-    print("[+] Vulnerability prioritisation complete.\n")
+    print("[+] Done.\n")
 
 
 # ------------------------------------------------------------

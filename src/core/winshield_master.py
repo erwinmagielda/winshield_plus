@@ -10,6 +10,10 @@ import sys
 from typing import Dict, Tuple
 
 
+# ------------------------------------------------------------
+# PATHS
+# ------------------------------------------------------------
+
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 SRC_DIR = os.path.dirname(SCRIPT_DIR)
 ROOT_DIR = os.path.dirname(SRC_DIR)
@@ -26,12 +30,20 @@ PRIORITISER_SCRIPT = os.path.join(SCRIPT_DIR, "winshield_prioritiser.py")
 PYTHON_EXE = sys.executable
 
 
+# ------------------------------------------------------------
+# STAGES
+# ------------------------------------------------------------
+
 STAGES: Dict[str, Tuple[str, str]] = {
     "1": ("Scan System", os.path.join(SCRIPT_DIR, "winshield_scanner.py")),
     "3": ("Download KB", os.path.join(SCRIPT_DIR, "winshield_downloader.py")),
     "4": ("Install KB", os.path.join(SCRIPT_DIR, "winshield_installer.py")),
 }
 
+
+# ------------------------------------------------------------
+# RUN SINGLE STAGE
+# ------------------------------------------------------------
 
 def run_stage(label: str, path: str) -> int:
 
@@ -70,6 +82,10 @@ def run_stage(label: str, path: str) -> int:
     return rc
 
 
+# ------------------------------------------------------------
+# RUNTIME PIPELINE (RANK RISK)
+# ------------------------------------------------------------
+
 def run_runtime_pipeline() -> int:
 
     pipeline = [
@@ -81,24 +97,41 @@ def run_runtime_pipeline() -> int:
     ]
 
     print("[*] Starting vulnerability prioritisation pipeline\n")
+    print(f"[*] Root directory: {ROOT_DIR}\n")
 
     for script, args in pipeline:
 
         if not os.path.isfile(script):
             print(f"[X] Missing pipeline script: {script}")
-            return
+            return 1
 
         print(f"[*] Running {os.path.basename(script)}")
 
-        result = subprocess.run(
-            [PYTHON_EXE, script, *args],
-            cwd=ROOT_DIR
-        )
+        try:
+            result = subprocess.run(
+                [PYTHON_EXE, script, *args],
+                cwd=ROOT_DIR
+            )
+
+        except KeyboardInterrupt:
+            print("\n[!] Pipeline cancelled by user.\n")
+            return 130
+
+        except Exception as exc:
+            print(f"[X] Failed to execute stage: {exc}\n")
+            return 1
 
         if result.returncode != 0:
             print("[X] Pipeline stage failed.\n")
-            return
+            return result.returncode
 
+    print("[+] Pipeline completed successfully.\n")
+    return 0
+
+
+# ------------------------------------------------------------
+# MENU
+# ------------------------------------------------------------
 
 def print_menu() -> None:
 
@@ -116,7 +149,6 @@ def print_menu() -> None:
 def read_choice() -> str:
 
     while True:
-
         try:
             choice = input("Select an option: ").strip()
 
@@ -128,12 +160,15 @@ def read_choice() -> str:
             return choice
 
 
+# ------------------------------------------------------------
+# MAIN LOOP
+# ------------------------------------------------------------
+
 def main() -> int:
 
     while True:
 
         print_menu()
-
         choice = read_choice()
 
         if choice == "5":
@@ -141,16 +176,24 @@ def main() -> int:
             return 0
 
         if choice == "2":
-            run_runtime_pipeline()
+            rc = run_runtime_pipeline()
+            if rc != 0:
+                print(f"[!] Pipeline exited with code {rc}\n")
             continue
 
         if choice in STAGES:
             label, path = STAGES[choice]
-            run_stage(label, path)
+            rc = run_stage(label, path)
+            if rc != 0:
+                print(f"[!] Stage exited with code {rc}\n")
             continue
 
         print("[!] Invalid selection.\n")
 
+
+# ------------------------------------------------------------
+# ENTRYPOINT
+# ------------------------------------------------------------
 
 if __name__ == "__main__":
     raise SystemExit(main())

@@ -6,6 +6,7 @@ import pandas as pd
 
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.linear_model import LogisticRegression
+from sklearn.cluster import KMeans
 from sklearn.metrics import (
     mean_absolute_error,
     mean_squared_error,
@@ -128,11 +129,55 @@ def train():
 
 
 # ------------------------------------------------------------
+# UNSUPERVISED MODEL (K-MEANS) — FIXED
+# ------------------------------------------------------------
+
+    print("\n=== Unsupervised Clustering (K-Means) ===")
+
+    scaler = StandardScaler()
+    X_unsup_scaled = scaler.fit_transform(X_train_processed)
+
+    wcss = []
+
+    for i in range(1, 11):
+        km = KMeans(n_clusters=i, random_state=2137)
+        km.fit(X_unsup_scaled)
+        wcss.append(km.inertia_)
+
+    print("WCSS values (Elbow Method):")
+    print(wcss)
+
+    optimal_k = 3
+
+    kmeans = KMeans(n_clusters=optimal_k, random_state=2137)
+    kmeans.fit(X_unsup_scaled)
+
+    print(f"KMeans trained with K={optimal_k}")
+
+
+# ------------------------------------------------------------
+# CLUSTER INTERPRETATION
+# ------------------------------------------------------------
+
+    cluster_labels = kmeans.predict(X_unsup_scaled)
+
+    cluster_df = pd.DataFrame({
+        "cluster": cluster_labels,
+        "risk_score": y_train_reg
+    })
+
+    print("\n=== Cluster Risk Distribution ===")
+    print(cluster_df.groupby("cluster")["risk_score"].mean())
+
+
+# ------------------------------------------------------------
 # SAVE MODELS
 # ------------------------------------------------------------
 
     joblib.dump(reg_model, os.path.join(MODELS_DIR, "regressor.joblib"))
     joblib.dump(clf_pipeline, os.path.join(MODELS_DIR, "classifier.joblib"))
+    joblib.dump(kmeans, os.path.join(MODELS_DIR, "clusterer.joblib"))
+    joblib.dump(scaler, os.path.join(MODELS_DIR, "cluster_scaler.joblib"))
 
     print("\nModels saved to /models directory.")
 
@@ -156,6 +201,11 @@ def train():
             "model": "LogisticRegression",
             "accuracy": float(acc),
             "f1_score": float(f1)
+        },
+        "unsupervised": {
+            "model": "KMeans",
+            "k": optimal_k,
+            "wcss": [float(x) for x in wcss]
         },
         "top_features": importance_df.head(10).to_dict(orient="records")
     }
