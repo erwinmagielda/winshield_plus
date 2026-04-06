@@ -2,8 +2,11 @@
 WinShield Prioritiser
 
 Uses the already preprocessed runtime dataset to predict
-patch risk using the trained regression model.
-Displays both continuous ML risk score and priority tier.
+patch risk using BOTH:
+- Regression model → numeric risk score
+- Classification model → priority label
+
+Displays both outputs clearly.
 """
 
 import os
@@ -28,7 +31,9 @@ os.makedirs(RESULTS_DIR, exist_ok=True)
 RUNTIME_FEATURES = os.path.join(RUNTIME_DIR, "preprocessed_runtime.csv")
 RUNTIME_VALIDATED = os.path.join(RUNTIME_DIR, "validated_runtime.csv")
 
-MODEL_PATH = os.path.join(MODELS_DIR, "regressor.joblib")
+REGRESSOR_PATH = os.path.join(MODELS_DIR, "regressor.joblib")
+CLASSIFIER_PATH = os.path.join(MODELS_DIR, "classifier.joblib")
+
 RESULTS_PATH = os.path.join(RESULTS_DIR, "ranking_results.json")
 
 
@@ -51,48 +56,37 @@ def load_runtime_data():
 
 
 # ------------------------------------------------------------
-# RISK CLASSIFICATION
-# ------------------------------------------------------------
-
-def classify_risk(score):
-
-    if score >= 9:
-        return "Critical"
-    elif score >= 7:
-        return "High"
-    elif score >= 4:
-        return "Medium"
-    else:
-        return "Low"
-
-
-# ------------------------------------------------------------
-# PREDICT RISK
+# PREDICT (REGRESSION + CLASSIFICATION)
 # ------------------------------------------------------------
 
 def predict_risk(features, metadata):
 
-    model = joblib.load(MODEL_PATH)
+    regressor = joblib.load(REGRESSOR_PATH)
+    classifier = joblib.load(CLASSIFIER_PATH)
 
-    expected = model.n_features_in_
+    expected = regressor.n_features_in_
     features = features.iloc[:, :expected]
 
-    predictions = model.predict(features)
+    # --- regression ---
+    reg_preds = regressor.predict(features)
 
-    metadata["predicted_risk"] = predictions
-    metadata["risk_level"] = metadata["predicted_risk"].apply(classify_risk)
+    # --- classification ---
+    clf_preds = classifier.predict(features)
+
+    metadata["regression_score"] = reg_preds
+    metadata["classification_label"] = clf_preds
 
     return metadata
 
 
 # ------------------------------------------------------------
-# KB ORDER
+# KB ORDER (BASED ON REGRESSION)
 # ------------------------------------------------------------
 
 def get_kb_order(df):
 
     kb_scores = (
-        df.groupby("kb_id")["predicted_risk"]
+        df.groupby("kb_id")["regression_score"]
         .max()
         .sort_values(ascending=False)
     )
@@ -109,7 +103,7 @@ def print_patch_recommendation(df):
     print("\n=== Patch Remediation Recommendation ===\n")
 
     kb_scores = (
-        df.groupby("kb_id")["predicted_risk"]
+        df.groupby("kb_id")["regression_score"]
         .max()
         .sort_values(ascending=False)
     )
@@ -120,11 +114,14 @@ def print_patch_recommendation(df):
 
         rows = df[df["kb_id"] == kb]
 
-        level = classify_risk(score)
+        level = rows["classification_label"].mode()[0]
         cve_count = len(rows)
 
         print(
-            f"{rank}. {kb} | {level} | Risk: {score:.2f} | CVEs: {cve_count}"
+            f"{rank}. {kb} | "
+            f"Classification: {level} | "
+            f"Regression: {score:.2f} | "
+            f"CVEs: {cve_count}"
         )
 
         rank += 1
@@ -140,7 +137,7 @@ def print_kb_breakdown(df):
 
     print("\n=== Patch Priority ===\n")
 
-    df_sorted = df.sort_values("predicted_risk", ascending=False)
+    df_sorted = df.sort_values("regression_score", ascending=False)
 
     kb_order = get_kb_order(df_sorted)
 
@@ -148,17 +145,24 @@ def print_kb_breakdown(df):
 
         kb_rows = df_sorted[df_sorted["kb_id"] == kb]
 
-        max_risk = kb_rows["predicted_risk"].max()
+        max_risk = kb_rows["regression_score"].max()
         cve_count = len(kb_rows)
 
-        kb_level = classify_risk(max_risk)
+        kb_level = kb_rows["classification_label"].mode()[0]
 
-        print(f"{kb} | {kb_level} | Max Risk: {max_risk:.2f} | CVEs: {cve_count}")
+        print(
+            f"{kb} | "
+            f"Classification: {kb_level} | "
+            f"Max Regression: {max_risk:.2f} | "
+            f"CVEs: {cve_count}"
+        )
 
         for _, row in kb_rows.iterrows():
 
             print(
-                f"   ├ {row['cve_id']} | {row['risk_level']} | Risk: {row['predicted_risk']:.2f}"
+                f"   ├ {row['cve_id']} | "
+                f"Classification: {row['classification_label']} | "
+                f"Regression: {row['regression_score']:.2f}"
             )
 
         print()
@@ -174,12 +178,12 @@ def save_results(df):
 
     for kb, rows in df.groupby("kb_id"):
 
-        max_risk = rows["predicted_risk"].max()
+        max_risk = rows["regression_score"].max()
 
         entry = {
             "kb_id": kb,
-            "max_risk": float(max_risk),
-            "risk_level": classify_risk(max_risk),
+            "max_regression": float(max_risk),
+            "classification": rows["classification_label"].mode()[0],
             "cves": []
         }
 
@@ -187,13 +191,13 @@ def save_results(df):
 
             entry["cves"].append({
                 "cve_id": r["cve_id"],
-                "risk_score": float(r["predicted_risk"]),
-                "risk_level": r["risk_level"]
+                "regression_score": float(r["regression_score"]),
+                "classification": r["classification_label"]
             })
 
         output.append(entry)
 
-    output = sorted(output, key=lambda x: x["max_risk"], reverse=True)
+    output = sorted(output, key=lambda x: x["max_regression"], reverse=True)
 
     with open(RESULTS_PATH, "w") as f:
         json.dump(output, f, indent=4)

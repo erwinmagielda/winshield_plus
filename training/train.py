@@ -54,7 +54,7 @@ def train():
         y_reg,
         y_clf,
         test_size=0.2,
-        random_state=42
+        random_state=2137
     )
 
     X_train_processed = X_train
@@ -67,7 +67,7 @@ def train():
 
     reg_model = RandomForestRegressor(
         n_estimators=200,
-        random_state=42
+        random_state=2137
     )
 
     reg_model.fit(X_train_processed, y_train_reg)
@@ -109,7 +109,7 @@ def train():
         ("classifier", LogisticRegression(
             max_iter=2000,
             class_weight="balanced",
-            random_state=42
+            random_state=2137
         ))
     ])
 
