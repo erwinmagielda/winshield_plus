@@ -110,8 +110,6 @@ def get_kb_order(df):
 
 def print_kb_breakdown(df):
 
-    print("\n=== Patch Priority ===\n")
-
     df_sorted = df.sort_values("regression", ascending=False)
     kb_order = get_kb_order(df_sorted)
 
