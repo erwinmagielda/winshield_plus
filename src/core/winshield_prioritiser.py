@@ -1,12 +1,3 @@
-"""
-WinShield Prioritiser
-
-Uses runtime data + trained models:
-- Regression → ranking
-- Classification → label
-- Clustering → behavioural grouping
-"""
-
 import os
 import json
 import pandas as pd
@@ -26,13 +17,12 @@ RESULTS_DIR = os.path.join(ROOT_DIR, "results")
 
 os.makedirs(RESULTS_DIR, exist_ok=True)
 
-RUNTIME_FEATURES = os.path.join(RUNTIME_DIR, "preprocessed_runtime.csv")
-RUNTIME_VALIDATED = os.path.join(RUNTIME_DIR, "validated_runtime.csv")
+RUNTIME_DATA = os.path.join(RUNTIME_DIR, "validated_runtime.csv")
 
-REGRESSOR_PATH = os.path.join(MODELS_DIR, "regressor.joblib")
-CLASSIFIER_PATH = os.path.join(MODELS_DIR, "classifier.joblib")
-CLUSTER_PATH = os.path.join(MODELS_DIR, "clusterer.joblib")
-SCALER_PATH = os.path.join(MODELS_DIR, "cluster_scaler.joblib")
+REGRESSION_MODEL = os.path.join(MODELS_DIR, "regression_model.joblib")
+CLASSIFICATION_MODEL = os.path.join(MODELS_DIR, "classification_model.joblib")
+CLUSTERING_MODEL = os.path.join(MODELS_DIR, "clustering_model.joblib")
+CLUSTERING_PREPROCESSOR = os.path.join(MODELS_DIR, "clustering_preprocessor.joblib")
 
 RESULTS_PATH = os.path.join(RESULTS_DIR, "ranking_results.json")
 
@@ -43,47 +33,61 @@ RESULTS_PATH = os.path.join(RESULTS_DIR, "ranking_results.json")
 
 def load_runtime_data():
 
-    if not os.path.exists(RUNTIME_FEATURES):
-        raise RuntimeError("Run preprocess first.")
+    if not os.path.exists(RUNTIME_DATA):
+        raise RuntimeError("Run runtime pipeline first.")
 
-    features = pd.read_csv(RUNTIME_FEATURES)
-    metadata = pd.read_csv(RUNTIME_VALIDATED)
+    df = pd.read_csv(RUNTIME_DATA)
 
-    if len(features) != len(metadata):
-        raise RuntimeError("Feature and metadata mismatch.")
+    return df
 
-    return features, metadata
+
+# ------------------------------------------------------------
+# PREPARE FEATURES
+# ------------------------------------------------------------
+
+def prepare_features(df):
+
+    drop_cols = [
+        "kb_id",
+        "cve_id",
+        "month",
+        "published_date",
+        "exploitation"
+    ]
+
+    X = df.drop(columns=[c for c in drop_cols if c in df.columns])
+
+    return X
 
 
 # ------------------------------------------------------------
 # PREDICT
 # ------------------------------------------------------------
 
-def predict(features, metadata):
+def predict(df):
 
-    regressor = joblib.load(REGRESSOR_PATH)
-    classifier = joblib.load(CLASSIFIER_PATH)
-    clusterer = joblib.load(CLUSTER_PATH)
-    scaler = joblib.load(SCALER_PATH)
+    X = prepare_features(df)
 
-    # ensure correct feature count
-    features = features.iloc[:, :regressor.n_features_in_]
+    reg_model = joblib.load(REGRESSION_MODEL)
+    clf_model = joblib.load(CLASSIFICATION_MODEL)
+    cluster_model = joblib.load(CLUSTERING_MODEL)
+    cluster_preprocessor = joblib.load(CLUSTERING_PREPROCESSOR)
 
     # regression
-    reg_preds = regressor.predict(features)
+    reg_preds = reg_model.predict(X)
 
     # classification
-    clf_preds = classifier.predict(features)
+    clf_preds = clf_model.predict(X)
 
-    # clustering (scaled!)
-    scaled = scaler.transform(features)
-    clusters = clusterer.predict(scaled)
+    # clustering (needs preprocessing!)
+    X_cluster = cluster_preprocessor.transform(X)
+    clusters = cluster_model.predict(X_cluster)
 
-    metadata["regression"] = reg_preds
-    metadata["classification"] = clf_preds
-    metadata["cluster"] = clusters
+    df["regression"] = reg_preds
+    df["classification"] = clf_preds
+    df["cluster"] = clusters
 
-    return metadata
+    return df
 
 
 # ------------------------------------------------------------
@@ -122,7 +126,7 @@ def print_kb_breakdown(df):
         print(
             f"{kb} | Cluster: {cluster} | "
             f"Classification: {label} | "
-            f"Max Regression: {max_risk:.2f} | "
+            f"Max Risk: {max_risk:.2f} | "
             f"CVEs: {len(kb_rows)}"
         )
 
@@ -131,7 +135,7 @@ def print_kb_breakdown(df):
                 f"   ├ {row['cve_id']} | "
                 f"Cluster: {row['cluster']} | "
                 f"Classification: {row['classification']} | "
-                f"Regression: {row['regression']:.2f}"
+                f"Risk: {row['regression']:.2f}"
             )
 
         print()
@@ -161,7 +165,7 @@ def print_patch_recommendation(df):
         print(
             f"{i}. {kb} | Cluster: {cluster} | "
             f"Classification: {label} | "
-            f"Regression: {score:.2f} | "
+            f"Risk: {score:.2f} | "
             f"CVEs: {len(rows)}"
         )
 
@@ -180,7 +184,7 @@ def save_results(df):
 
         entry = {
             "kb_id": kb,
-            "max_regression": float(rows["regression"].max()),
+            "max_risk": float(rows["regression"].max()),
             "classification": rows["classification"].mode()[0],
             "cluster": int(rows["cluster"].mode()[0]),
             "cves": []
@@ -189,19 +193,19 @@ def save_results(df):
         for _, r in rows.iterrows():
             entry["cves"].append({
                 "cve_id": r["cve_id"],
-                "regression": float(r["regression"]),
+                "risk": float(r["regression"]),
                 "classification": r["classification"],
                 "cluster": int(r["cluster"])
             })
 
         output.append(entry)
 
-    output = sorted(output, key=lambda x: x["max_regression"], reverse=True)
+    output = sorted(output, key=lambda x: x["max_risk"], reverse=True)
 
     with open(RESULTS_PATH, "w") as f:
         json.dump(output, f, indent=4)
 
-    print(f"[+] Results saved → {RESULTS_PATH}")
+    print(f"[+] Results saved to {RESULTS_PATH}")
 
 
 # ------------------------------------------------------------
@@ -212,9 +216,9 @@ def main():
 
     print("\n=== WinShield AI Prioritisation ===")
 
-    features, metadata = load_runtime_data()
+    df = load_runtime_data()
 
-    df = predict(features, metadata)
+    df = predict(df)
 
     print_kb_breakdown(df)
     print_patch_recommendation(df)

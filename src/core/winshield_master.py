@@ -20,11 +20,7 @@ ROOT_DIR = os.path.dirname(SRC_DIR)
 
 TRAINING_DIR = os.path.join(ROOT_DIR, "training")
 
-FLATTEN_SCRIPT = os.path.join(TRAINING_DIR, "flatten.py")
-ENRICH_SCRIPT = os.path.join(TRAINING_DIR, "enrich.py")
-VALIDATE_SCRIPT = os.path.join(TRAINING_DIR, "validate.py")
-PREPROCESS_SCRIPT = os.path.join(TRAINING_DIR, "preprocess.py")
-
+DATA_PIPELINE_SCRIPT = os.path.join(TRAINING_DIR, "data_pipeline.py")
 PRIORITISER_SCRIPT = os.path.join(SCRIPT_DIR, "winshield_prioritiser.py")
 
 PYTHON_EXE = sys.executable
@@ -89,10 +85,7 @@ def run_stage(label: str, path: str) -> int:
 def run_runtime_pipeline() -> int:
 
     pipeline = [
-        (FLATTEN_SCRIPT, ["--mode", "runtime"]),
-        (ENRICH_SCRIPT, ["--mode", "runtime"]),
-        (VALIDATE_SCRIPT, ["--mode", "runtime"]),
-        (PREPROCESS_SCRIPT, ["--mode", "runtime"]),
+        (DATA_PIPELINE_SCRIPT, ["--mode", "runtime"]),
         (PRIORITISER_SCRIPT, []),
     ]
 
