@@ -154,4 +154,4 @@ print(classification_report(y_test, preds))
 joblib.dump(pipeline, os.path.join(MODELS_DIR, "classification_model.joblib"))
 joblib.dump(X.columns.tolist(), os.path.join(MODELS_DIR, "classification_features.joblib"))
 
-print("\nModel saved to /models/")
+print("\nClassification model saved.")

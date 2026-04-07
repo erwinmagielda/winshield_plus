@@ -103,7 +103,7 @@ plt.show()
 # STEP 7: SELECT K
 # ------------------------------------------------------------
 
-optimal_k = 3  # or 4 based on your earlier observation
+optimal_k = 4
 
 print(f"\nSelected K = {optimal_k}")
 
@@ -147,4 +147,4 @@ joblib.dump(kmeans, os.path.join(MODELS_DIR, "clustering_model.joblib"))
 joblib.dump(preprocessor, os.path.join(MODELS_DIR, "clustering_preprocessor.joblib"))
 joblib.dump(X.columns.tolist(), os.path.join(MODELS_DIR, "clustering_features.joblib"))
 
-print("\nClustering model saved to /models/")
+print("\nClustering model saved.")

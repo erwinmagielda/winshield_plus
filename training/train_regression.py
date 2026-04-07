@@ -151,4 +151,4 @@ print(importance_df.head(10))
 joblib.dump(pipeline, os.path.join(MODELS_DIR, "regression_model.joblib"))
 joblib.dump(X.columns.tolist(), os.path.join(MODELS_DIR, "regression_features.joblib"))
 
-print("\nModel saved to /models/")
+print("\nRegression model saved.")
