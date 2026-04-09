@@ -20,7 +20,11 @@ os.makedirs(RESULTS_DIR, exist_ok=True)
 RUNTIME_DATA = os.path.join(RUNTIME_DIR, "validated_runtime.csv")
 
 REGRESSION_MODEL = os.path.join(MODELS_DIR, "regression_model.joblib")
+REGRESSION_PREPROCESSOR = os.path.join(MODELS_DIR, "regression_preprocessor.joblib")
+
 CLASSIFICATION_MODEL = os.path.join(MODELS_DIR, "classification_model.joblib")
+CLASSIFICATION_PREPROCESSOR = os.path.join(MODELS_DIR, "classification_preprocessor.joblib")
+
 CLUSTERING_MODEL = os.path.join(MODELS_DIR, "clustering_model.joblib")
 CLUSTERING_PREPROCESSOR = os.path.join(MODELS_DIR, "clustering_preprocessor.joblib")
 
@@ -47,6 +51,11 @@ def load_runtime_data():
 
 def prepare_features(df):
 
+    # transform exploitation → binary flag (same as training)
+    df["exploited_flag"] = df["exploitation"].apply(
+        lambda x: 1 if "Exploited:Yes" in str(x) else 0
+    )
+
     drop_cols = [
         "kb_id",
         "cve_id",
@@ -55,7 +64,7 @@ def prepare_features(df):
         "exploitation"
     ]
 
-    X = df.drop(columns=[c for c in drop_cols if c in df.columns])
+    X = df.drop(columns=drop_cols)
 
     return X
 
@@ -68,19 +77,24 @@ def predict(df):
 
     X = prepare_features(df)
 
+    # load models
     reg_model = joblib.load(REGRESSION_MODEL)
     clf_model = joblib.load(CLASSIFICATION_MODEL)
     cluster_model = joblib.load(CLUSTERING_MODEL)
+
+    # load preprocessors
+    reg_preprocessor = joblib.load(REGRESSION_PREPROCESSOR)
+    clf_preprocessor = joblib.load(CLASSIFICATION_PREPROCESSOR)
     cluster_preprocessor = joblib.load(CLUSTERING_PREPROCESSOR)
 
-    # regression
-    reg_preds = reg_model.predict(X)
-
-    # classification
-    clf_preds = clf_model.predict(X)
-
-    # clustering (needs preprocessing!)
+    # preprocess inputs
+    X_reg = reg_preprocessor.transform(X)
+    X_clf = clf_preprocessor.transform(X)
     X_cluster = cluster_preprocessor.transform(X)
+
+    # predictions
+    reg_preds = reg_model.predict(X_reg)
+    clf_preds = clf_model.predict(X_clf)
     clusters = cluster_model.predict(X_cluster)
 
     df["regression"] = reg_preds
