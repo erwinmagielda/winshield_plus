@@ -1,5 +1,3 @@
-Here’s a clean **GitHub-ready `README.md`** (proper markdown, no weird formatting):
-
 ````markdown
 # WinShield+
 
