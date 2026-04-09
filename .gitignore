@@ -12,14 +12,10 @@ __pycache__/
 venv/
 .env/
 
-# Results & data
+# ARTEFACTS
 results/
 data/
 models/
 downloads/
-/collector
+collector/
 notes.txt
-
-# OS junk
-.DS_Store
-Thumbs.db
