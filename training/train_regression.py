@@ -4,9 +4,8 @@ import pandas as pd
 import numpy as np
 
 from sklearn.model_selection import train_test_split
-from sklearn.pipeline import Pipeline
-from sklearn.compose import ColumnTransformer
 from sklearn.preprocessing import OneHotEncoder
+from sklearn.compose import ColumnTransformer
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
@@ -19,8 +18,10 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 DATA_PATH = os.path.join(BASE_DIR, "data", "dataset", "validated_dataset.csv")
 MODELS_DIR = os.path.join(BASE_DIR, "models")
+RESULTS_DIR = os.path.join(BASE_DIR, "results")
 
 os.makedirs(MODELS_DIR, exist_ok=True)
+os.makedirs(RESULTS_DIR, exist_ok=True)
 
 
 # ------------------------------------------------------------
@@ -34,54 +35,65 @@ print("Dataset shape:", df.shape)
 
 
 # ------------------------------------------------------------
-# STEP 2: DEFINE FEATURES (X) AND TARGET (y)
+# STEP 2: TRANSFORM FEATURE
 # ------------------------------------------------------------
 
-drop_cols = [
-    "risk_score",
-    "priority_label",
-    "kb_id",
-    "cve_id",
-    "month",
-    "published_date",
-    "exploitation"
-]
+df["exploited_flag"] = df["exploitation"].apply(
+    lambda x: 1 if "Exploited:Yes" in str(x) else 0
+)
 
-X = df.drop(columns=[c for c in drop_cols if c in df.columns])
+print("\nExploitation flag distribution:")
+print(df["exploited_flag"].value_counts())
+
+
+# ------------------------------------------------------------
+# STEP 3: DEFINE FEATURES (X) AND TARGET (y)
+# ------------------------------------------------------------
+
+X = df.drop(["risk_score", "priority_label", "kb_id", "cve_id", "month", "published_date", "exploitation"], axis=1)
 y = df["risk_score"]
 
 
 # ------------------------------------------------------------
-# STEP 3: TRAIN / TEST SPLIT
+# STEP 4: TRAIN / TEST SPLIT
 # ------------------------------------------------------------
 
 X_train, X_test, y_train, y_test = train_test_split(
     X, y, test_size=0.2, random_state=2137
 )
 
+print("\nTrain shape:", X_train.shape)
+print("Test shape:", X_test.shape)
+
 
 # ------------------------------------------------------------
-# STEP 4: FEATURE TYPE SEPARATION
+# STEP 5: FEATURE TYPE SEPARATION
 # ------------------------------------------------------------
 
-numeric_features = X.select_dtypes(include=["int64", "float64"]).columns
-categorical_features = X.select_dtypes(include=["object"]).columns
+numeric_features = X_train.select_dtypes(include=["int64", "float64"]).columns
+categorical_features = X_train.select_dtypes(include=["object"]).columns
 
 print("\nNumeric features:", list(numeric_features))
 print("Categorical features:", list(categorical_features))
 
 
 # ------------------------------------------------------------
-# STEP 5: PREPROCESSING (ONLY ENCODING)
+# STEP 6: ENCODING
 # ------------------------------------------------------------
 
 preprocessor = ColumnTransformer([
     ("cat", OneHotEncoder(handle_unknown="ignore"), categorical_features)
-], remainder="passthrough")  # keep numeric as-is
+], remainder="passthrough")
+
+X_train_processed = preprocessor.fit_transform(X_train)
+X_test_processed = preprocessor.transform(X_test)
+
+print("\nProcessed shape (train):", X_train_processed.shape)
+print("Processed shape (test):", X_test_processed.shape)
 
 
 # ------------------------------------------------------------
-# STEP 6: MODEL DEFINITION
+# STEP 7: MODEL TRAINING
 # ------------------------------------------------------------
 
 model = RandomForestRegressor(
@@ -89,33 +101,23 @@ model = RandomForestRegressor(
     random_state=2137
 )
 
-
-# ------------------------------------------------------------
-# STEP 7: PIPELINE
-# ------------------------------------------------------------
-
-pipeline = Pipeline([
-    ("preprocessor", preprocessor),
-    ("regressor", model)
-])
+model.fit(X_train_processed, y_train)
 
 
 # ------------------------------------------------------------
-# STEP 8: TRAIN MODEL
+# STEP 8: PREDICTIONS
 # ------------------------------------------------------------
 
-pipeline.fit(X_train, y_train)
+y_pred = model.predict(X_test_processed)
 
 
 # ------------------------------------------------------------
-# STEP 9: EVALUATE MODEL
+# STEP 9: EVALUATION
 # ------------------------------------------------------------
 
-preds = pipeline.predict(X_test)
-
-mae = mean_absolute_error(y_test, preds)
-rmse = np.sqrt(mean_squared_error(y_test, preds))
-r2 = r2_score(y_test, preds)
+mae = mean_absolute_error(y_test, y_pred)
+rmse = np.sqrt(mean_squared_error(y_test, y_pred))
+r2 = r2_score(y_test, y_pred)
 
 print("\n=== Results ===")
 print(f"MAE:  {mae:.4f}")
@@ -124,28 +126,36 @@ print(f"R2:   {r2:.4f}")
 
 
 # ------------------------------------------------------------
-# OPTIONAL: FEATURE IMPORTANCE
+# STEP 10: FEATURE IMPORTANCE
 # ------------------------------------------------------------
 
-# get feature names after encoding
-encoded_features = pipeline.named_steps["preprocessor"].get_feature_names_out()
-
-importances = pipeline.named_steps["regressor"].feature_importances_
+feature_names = preprocessor.get_feature_names_out().astype(str)
 
 importance_df = pd.DataFrame({
-    "feature": encoded_features,
-    "importance": importances
+    "feature": feature_names,
+    "importance": model.feature_importances_
 }).sort_values(by="importance", ascending=False)
 
 print("\nTop 10 Feature Importances:")
-print(importance_df.head(10))
+for i, row in importance_df.head(10).iterrows():
+    print(f"{row['feature']} -> {row['importance']:.4f}")
 
 
 # ------------------------------------------------------------
-# STEP 10: SAVE MODEL + FEATURE SCHEMA
+# STEP 11: SAVE MODEL + PREPROCESSOR
 # ------------------------------------------------------------
 
-joblib.dump(pipeline, os.path.join(MODELS_DIR, "regression_model.joblib"))
-joblib.dump(X.columns.tolist(), os.path.join(MODELS_DIR, "regression_features.joblib"))
+model_path = os.path.join(MODELS_DIR, "regression_model.joblib")
+preprocessor_path = os.path.join(MODELS_DIR, "regression_preprocessor.joblib")
 
-print("\nRegression model saved.")
+joblib.dump(model, model_path)
+joblib.dump(preprocessor, preprocessor_path)
+
+print("\n[+] Model saved to:", model_path)
+print("[+] Preprocessor saved to:", preprocessor_path)
+
+# ------------------------------------------------------------
+# DONE
+# ------------------------------------------------------------
+
+print("\n=== Training Complete ===\n")

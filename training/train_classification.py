@@ -3,7 +3,6 @@ import joblib
 import pandas as pd
 
 from sklearn.model_selection import train_test_split
-from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.compose import ColumnTransformer
 from sklearn.linear_model import LogisticRegression
@@ -13,9 +12,6 @@ from sklearn.metrics import (
     classification_report,
     confusion_matrix
 )
-
-import seaborn as sns
-import matplotlib.pyplot as plt
 
 
 # ------------------------------------------------------------
@@ -41,10 +37,22 @@ print("Dataset shape:", df.shape)
 
 
 # ------------------------------------------------------------
-# STEP 2: DEFINE FEATURES (X) AND TARGET (y)
+# STEP 2: TRANSFORM FEATURE
 # ------------------------------------------------------------
 
-drop_cols = [
+df["exploited_flag"] = df["exploitation"].apply(
+    lambda x: 1 if "Exploited:Yes" in str(x) else 0
+)
+
+print("\nExploitation flag distribution:")
+print(df["exploited_flag"].value_counts())
+
+
+# ------------------------------------------------------------
+# STEP 3: DEFINE FEATURES (X) AND TARGET (y)
+# ------------------------------------------------------------
+
+X = df.drop([
     "risk_score",
     "priority_label",
     "kb_id",
@@ -52,9 +60,8 @@ drop_cols = [
     "month",
     "published_date",
     "exploitation"
-]
+], axis=1)
 
-X = df.drop(columns=[c for c in drop_cols if c in df.columns])
 y = df["priority_label"]
 
 print("\nClass distribution:")
@@ -62,27 +69,30 @@ print(y.value_counts())
 
 
 # ------------------------------------------------------------
-# STEP 3: TRAIN / TEST SPLIT
+# STEP 4: TRAIN / TEST SPLIT
 # ------------------------------------------------------------
 
 X_train, X_test, y_train, y_test = train_test_split(
     X, y, test_size=0.2, random_state=2137, stratify=y
 )
 
+print("\nTrain shape:", X_train.shape)
+print("Test shape:", X_test.shape)
+
 
 # ------------------------------------------------------------
-# STEP 4: FEATURE TYPE SEPARATION
+# STEP 5: FEATURE TYPE SEPARATION
 # ------------------------------------------------------------
 
-numeric_features = X.select_dtypes(include=["int64", "float64"]).columns
-categorical_features = X.select_dtypes(include=["object"]).columns
+numeric_features = X_train.select_dtypes(include=["int64", "float64"]).columns
+categorical_features = X_train.select_dtypes(include=["object"]).columns
 
 print("\nNumeric features:", list(numeric_features))
 print("Categorical features:", list(categorical_features))
 
 
 # ------------------------------------------------------------
-# STEP 5: PREPROCESSING (ENCODING + SCALING)
+# STEP 6: PREPROCESSING
 # ------------------------------------------------------------
 
 preprocessor = ColumnTransformer([
@@ -90,9 +100,12 @@ preprocessor = ColumnTransformer([
     ("cat", OneHotEncoder(handle_unknown="ignore"), categorical_features)
 ])
 
+X_train_processed = preprocessor.fit_transform(X_train)
+X_test_processed = preprocessor.transform(X_test)
+
 
 # ------------------------------------------------------------
-# STEP 6: MODEL DEFINITION
+# STEP 7: MODEL TRAINING
 # ------------------------------------------------------------
 
 model = LogisticRegression(
@@ -101,35 +114,24 @@ model = LogisticRegression(
     random_state=2137
 )
 
-
-# ------------------------------------------------------------
-# STEP 7: PIPELINE (PREPROCESS + MODEL)
-# ------------------------------------------------------------
-
-pipeline = Pipeline([
-    ("preprocessor", preprocessor),
-    ("classifier", model)
-])
+model.fit(X_train_processed, y_train)
 
 
 # ------------------------------------------------------------
-# STEP 8: TRAIN MODEL
+# STEP 8: PREDICTIONS
 # ------------------------------------------------------------
 
-pipeline.fit(X_train, y_train)
+preds = model.predict(X_test_processed)
 
 
 # ------------------------------------------------------------
-# STEP 9: EVALUATE MODEL
+# STEP 9: EVALUATION
 # ------------------------------------------------------------
-
-preds = pipeline.predict(X_test)
 
 acc = accuracy_score(y_test, preds)
 f1 = f1_score(y_test, preds, average="weighted")
 
 labels = sorted(y.unique())
-
 cm = confusion_matrix(y_test, preds, labels=labels)
 
 print("\n=== Results ===")
@@ -144,10 +146,21 @@ print(classification_report(y_test, preds))
 
 
 # ------------------------------------------------------------
-# STEP 10: SAVE MODEL + FEATURE SCHEMA
+# STEP 10: SAVE MODEL + PREPROCESSOR
 # ------------------------------------------------------------
 
-joblib.dump(pipeline, os.path.join(MODELS_DIR, "classification_model.joblib"))
-joblib.dump(X.columns.tolist(), os.path.join(MODELS_DIR, "classification_features.joblib"))
+model_path = os.path.join(MODELS_DIR, "classification_model.joblib")
+preprocessor_path = os.path.join(MODELS_DIR, "classification_preprocessor.joblib")
 
-print("\nClassification model saved.")
+joblib.dump(model, model_path)
+joblib.dump(preprocessor, preprocessor_path)
+
+print("\n[+] Model saved to:", model_path)
+print("[+] Preprocessor saved to:", preprocessor_path)
+
+
+# ------------------------------------------------------------
+# DONE
+# ------------------------------------------------------------
+
+print("\n=== Training Complete ===\n")

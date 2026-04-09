@@ -1,11 +1,9 @@
 import os
 import joblib
 import pandas as pd
-import numpy as np
 
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.compose import ColumnTransformer
-from sklearn.pipeline import Pipeline
 from sklearn.cluster import KMeans
 import matplotlib.pyplot as plt
 
@@ -33,10 +31,22 @@ print("Dataset shape:", df.shape)
 
 
 # ------------------------------------------------------------
-# STEP 2: DEFINE FEATURES (NO TARGET)
+# STEP 2: TRANSFORM FEATURE
 # ------------------------------------------------------------
 
-drop_cols = [
+df["exploited_flag"] = df["exploitation"].apply(
+    lambda x: 1 if "Exploited:Yes" in str(x) else 0
+)
+
+print("\nExploitation flag distribution:")
+print(df["exploited_flag"].value_counts())
+
+
+# ------------------------------------------------------------
+# STEP 3: DEFINE FEATURES (NO TARGET)
+# ------------------------------------------------------------
+
+X = df.drop([
     "risk_score",
     "priority_label",
     "kb_id",
@@ -44,13 +54,13 @@ drop_cols = [
     "month",
     "published_date",
     "exploitation"
-]
+], axis=1)
 
-X = df.drop(columns=[c for c in drop_cols if c in df.columns])
+print("\nFeature shape:", X.shape)
 
 
 # ------------------------------------------------------------
-# STEP 3: FEATURE TYPE SEPARATION
+# STEP 4: FEATURE TYPE SEPARATION
 # ------------------------------------------------------------
 
 numeric_features = X.select_dtypes(include=["int64", "float64"]).columns
@@ -61,7 +71,7 @@ print("Categorical features:", list(categorical_features))
 
 
 # ------------------------------------------------------------
-# STEP 4: PREPROCESSING (ENCODE + SCALE)
+# STEP 5: PREPROCESSING (ENCODE + SCALE)
 # ------------------------------------------------------------
 
 preprocessor = ColumnTransformer([
@@ -69,16 +79,13 @@ preprocessor = ColumnTransformer([
     ("cat", OneHotEncoder(handle_unknown="ignore"), categorical_features)
 ])
 
-
-# ------------------------------------------------------------
-# STEP 5: TRANSFORM DATA
-# ------------------------------------------------------------
-
 X_processed = preprocessor.fit_transform(X)
 
+print("\nProcessed shape:", X_processed.shape)
+
 
 # ------------------------------------------------------------
-# STEP 6: ELBOW METHOD (FIND K)
+# STEP 6: ELBOW METHOD
 # ------------------------------------------------------------
 
 wcss = []
@@ -104,7 +111,6 @@ plt.show()
 # ------------------------------------------------------------
 
 optimal_k = 4
-
 print(f"\nSelected K = {optimal_k}")
 
 
@@ -121,7 +127,6 @@ kmeans.fit(X_processed)
 # ------------------------------------------------------------
 
 clusters = kmeans.predict(X_processed)
-
 df["cluster"] = clusters
 
 
@@ -137,6 +142,9 @@ print(df.groupby("cluster")["risk_score"].mean())
 
 print("\n=== Cluster vs CVSS ===")
 print(df.groupby("cluster")["cvss_score"].mean())
+
+print("\n=== Cluster vs Exploited ===")
+print(df.groupby("cluster")["exploited_flag"].mean())
 
 
 # ------------------------------------------------------------
