@@ -83,6 +83,13 @@ X_processed = preprocessor.fit_transform(X)
 
 print("\nProcessed shape:", X_processed.shape)
 
+# SET READY
+feature_names = preprocessor.get_feature_names_out().astype(str)
+
+X_preview = pd.DataFrame(X_processed, columns=feature_names)
+
+print("\n=== Processed Dataset Preview (Top 20) ===")
+print(X_preview.head(20))
 
 # ------------------------------------------------------------
 # STEP 6: ELBOW METHOD

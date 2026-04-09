@@ -103,6 +103,14 @@ preprocessor = ColumnTransformer([
 X_train_processed = preprocessor.fit_transform(X_train)
 X_test_processed = preprocessor.transform(X_test)
 
+# SET READY
+feature_names = preprocessor.get_feature_names_out().astype(str)
+
+X_preview = pd.DataFrame(X_train_processed, columns=feature_names)
+
+print("\n=== Processed Dataset Preview (Top 20) ===")
+print(X_preview.head(20))
+
 
 # ------------------------------------------------------------
 # STEP 7: MODEL TRAINING

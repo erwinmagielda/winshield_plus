@@ -100,6 +100,14 @@ X_test_processed = preprocessor.transform(X_test)
 print("\nProcessed shape (train):", X_train_processed.shape)
 print("Processed shape (test):", X_test_processed.shape)
 
+# SET READY
+feature_names = preprocessor.get_feature_names_out().astype(str)
+
+X_preview = pd.DataFrame(X_train_processed, columns=feature_names)
+
+print("\n=== Processed Dataset Preview (Top 20) ===")
+print(X_preview.head(20))
+
 
 # ------------------------------------------------------------
 # STEP 7: MODEL TRAINING
