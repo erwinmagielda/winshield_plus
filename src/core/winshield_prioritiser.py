@@ -51,7 +51,6 @@ def load_runtime_data():
 
 def prepare_features(df):
 
-    # transform exploitation → binary flag (same as training)
     df["exploited_flag"] = df["exploitation"].apply(
         lambda x: 1 if "Exploited:Yes" in str(x) else 0
     )
