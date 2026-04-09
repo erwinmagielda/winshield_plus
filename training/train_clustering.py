@@ -64,7 +64,7 @@ print("\nFeature shape:", X.shape)
 # ------------------------------------------------------------
 
 numeric_features = X.select_dtypes(include=["int64", "float64"]).columns
-categorical_features = X.select_dtypes(include=["object"]).columns
+categorical_features = X.select_dtypes(include=["object", "string"]).columns
 
 print("\nNumeric features:", list(numeric_features))
 print("Categorical features:", list(categorical_features))
@@ -110,7 +110,7 @@ plt.show()
 # STEP 7: SELECT K
 # ------------------------------------------------------------
 
-optimal_k = 4
+optimal_k = 5
 print(f"\nSelected K = {optimal_k}")
 
 
@@ -146,6 +146,11 @@ print(df.groupby("cluster")["cvss_score"].mean())
 print("\n=== Cluster vs Exploited ===")
 print(df.groupby("cluster")["exploited_flag"].mean())
 
+plt.scatter(df["cvss_score"], df["risk_score"], c=df["cluster"], cmap="viridis", alpha=0.5)
+plt.title("CVSS vs Risk Score")
+plt.xlabel("CVSS Score")
+plt.ylabel("Risk Score")
+plt.show()
 
 # ------------------------------------------------------------
 # STEP 11: SAVE MODEL + PREPROCESSOR

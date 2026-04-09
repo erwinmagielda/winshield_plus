@@ -85,7 +85,7 @@ print("Test shape:", X_test.shape)
 # ------------------------------------------------------------
 
 numeric_features = X_train.select_dtypes(include=["int64", "float64"]).columns
-categorical_features = X_train.select_dtypes(include=["object"]).columns
+categorical_features = X_train.select_dtypes(include=["object", "string"]).columns
 
 print("\nNumeric features:", list(numeric_features))
 print("Categorical features:", list(categorical_features))

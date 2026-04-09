@@ -50,7 +50,16 @@ print(df["exploited_flag"].value_counts())
 # STEP 3: DEFINE FEATURES (X) AND TARGET (y)
 # ------------------------------------------------------------
 
-X = df.drop(["risk_score", "priority_label", "kb_id", "cve_id", "month", "published_date", "exploitation"], axis=1)
+X = df.drop([
+    "risk_score",
+    "priority_label",
+    "kb_id",
+    "cve_id",
+    "month",
+    "published_date",
+    "exploitation"
+    ], axis=1)
+
 y = df["risk_score"]
 
 
@@ -71,7 +80,7 @@ print("Test shape:", X_test.shape)
 # ------------------------------------------------------------
 
 numeric_features = X_train.select_dtypes(include=["int64", "float64"]).columns
-categorical_features = X_train.select_dtypes(include=["object"]).columns
+categorical_features = X_train.select_dtypes(include=["object", "string"]).columns
 
 print("\nNumeric features:", list(numeric_features))
 print("Categorical features:", list(categorical_features))
