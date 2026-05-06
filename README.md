@@ -1,6 +1,6 @@
 # WinShield+
 
-WinShield+ is a Windows patch-state analysis and vulnerability prioritisation pipeline. It scans local Windows update state, correlates installed and missing KBs with Microsoft Security Response Center data, enriches related CVEs, builds training and runtime datasets, trains machine learning models, and ranks missing updates by predicted risk.
+WinShield+ is a Windows patch-state analysis and vulnerability prioritisation pipeline. It scans local Windows update state, correlates installed and missing KBs with Microsoft Security Response Center data, enriches related CVEs, builds training/runtime datasets, trains machine learning models, and ranks missing updates by predicted risk.
 
 The project is designed as a practical vulnerability management workflow rather than a simple patch checker. It combines PowerShell collection, MSRC CVRF correlation, Python data processing, and machine learning-based prioritisation.
 
@@ -79,8 +79,6 @@ classification_model.joblib
 clustering_model.joblib
 ```
 
-The data pipeline prepares the training dataset. The model pipeline trains models from the already prepared `validated_dataset.csv`.
-
 ### Runtime Pipeline
 
 ```text
@@ -96,6 +94,8 @@ src/core/winshield_prioritiser.py
         ↓
 results/ranking_results.json
 results/prioritisation_summary.json
+results/downloader_summary.json
+results/installer_summary.json
 ```
 
 ---
@@ -177,7 +177,7 @@ python remove_run.py
 
 ---
 
-### 2. Build the training dataset
+### 2. Build training dataset
 
 ```powershell
 python training\data_pipeline.py --mode training
@@ -197,16 +197,17 @@ results/training_pipeline_summary.json
 
 ### 3. Train all models
 
-Run this after the training dataset has been built.
-
 ```powershell
 python training\model_pipeline.py
 ```
 
-The model pipeline does not rebuild the dataset. It expects this file to already exist:
+This runs:
 
 ```text
-data/dataset/validated_dataset.csv
+training/data_pipeline.py --mode training
+training/train_regression.py
+training/train_classification.py
+training/train_clustering.py
 ```
 
 Generated model artefacts:
@@ -231,6 +232,8 @@ results/model_pipeline_summary.json
 
 ### 4. Scan current system
 
+Run:
+
 ```powershell
 python src\core\winshield_scanner.py
 ```
@@ -245,7 +248,7 @@ data/runtime/scan_YYYYMMDD_HHMMSS.json
 
 ---
 
-### 5. Build the runtime dataset
+### 5. Build runtime dataset
 
 ```powershell
 python training\data_pipeline.py --mode runtime
@@ -290,10 +293,11 @@ Menu options:
 2) Rank Risk
 3) Download Update
 4) Install Update
-5) Exit
+5) Clean Generated Artefacts
+6) Exit
 ```
 
-The Rank Risk option runs the runtime data pipeline and then the prioritiser.
+The cleanup option runs `remove_run.py`, which removes generated datasets, runtime files, model artefacts, results, and downloads while preserving `data/scans/`.
 
 ---
 
@@ -333,6 +337,8 @@ results/training_pipeline_summary.json
 results/runtime_pipeline_summary.json
 results/model_pipeline_summary.json
 results/prioritisation_summary.json
+results/downloader_summary.json
+results/installer_summary.json
 ```
 
 These summaries record counts such as:
@@ -349,6 +355,8 @@ These summaries record counts such as:
 - generated outputs
 - model artefacts created
 - prioritisation results produced
+- downloader package retrieval attempts
+- installer execution attempts
 
 ---
 
@@ -385,9 +393,9 @@ src/core/winshield_downloader.py
 src/core/winshield_installer.py
 ```
 
-The downloader searches the Microsoft Update Catalog for a selected missing KB and downloads a matching `.msu` or `.cab` package.
+The downloader searches the Microsoft Update Catalog for a selected missing KB and downloads a matching `.msu` or `.cab` package. It writes `results/downloader_summary.json` when run.
 
-The installer attempts to install a selected downloaded package using:
+The installer writes `results/installer_summary.json` and attempts to install a selected downloaded package using:
 
 ```text
 wusa.exe

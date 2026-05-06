@@ -2,7 +2,7 @@
 WinShield+ master runner.
 
 Provides an operator menu for running scanner, prioritisation,
-download, and install stages from a single entry point.
+download, install, and cleanup stages from a single entry point.
 """
 
 import subprocess
@@ -20,6 +20,7 @@ TRAINING_DIR = ROOT_DIR / "training"
 
 DATA_PIPELINE_SCRIPT = TRAINING_DIR / "data_pipeline.py"
 PRIORITISER_SCRIPT = SCRIPT_DIR / "winshield_prioritiser.py"
+REMOVE_RUN_SCRIPT = ROOT_DIR / "remove_run.py"
 
 PYTHON_EXE = sys.executable
 
@@ -32,6 +33,7 @@ STAGES: dict[str, tuple[str, Path]] = {
     "1": ("Scan System", SCRIPT_DIR / "winshield_scanner.py"),
     "3": ("Download Update", SCRIPT_DIR / "winshield_downloader.py"),
     "4": ("Install Update", SCRIPT_DIR / "winshield_installer.py"),
+    "5": ("Clean Artefacts", REMOVE_RUN_SCRIPT),
 }
 
 
@@ -137,7 +139,8 @@ def print_menu() -> None:
     print("2) Rank Risk")
     print("3) Download Update")
     print("4) Install Update")
-    print("5) Exit")
+    print("5) Clean Generated Artefacts")
+    print("6) Exit")
     print()
 
 
@@ -150,7 +153,7 @@ def read_choice() -> str:
 
         except (KeyboardInterrupt, EOFError):
             print("\n[!] Cancelled by user.")
-            return "5"
+            return "6"
 
         if choice:
             return choice
@@ -168,7 +171,7 @@ def main() -> int:
         print_menu()
         choice = read_choice()
 
-        if choice == "5":
+        if choice == "6":
             print("Exiting WinShield+.")
             return 0
 
