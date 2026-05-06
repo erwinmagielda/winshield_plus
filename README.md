@@ -293,7 +293,7 @@ Menu options:
 2) Rank Risk
 3) Download Update
 4) Install Update
-5) Clean Generated Artefacts
+5) Clean Artefacts
 6) Exit
 ```
 
