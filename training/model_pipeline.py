@@ -1,12 +1,12 @@
 """
 WinShield+ model pipeline.
 
-Runs the full training workflow:
-1. Build and validate the training dataset.
-2. Train the regression model.
-3. Train the classification model.
-4. Train the clustering model.
+Runs the model training workflow:
+1. Train the regression model.
+2. Train the classification model.
+3. Train the clustering model.
 
+Requires data/dataset/validated_dataset.csv to already exist.
 Exports a model pipeline summary to results/model_pipeline_summary.json.
 """
 
@@ -27,7 +27,8 @@ ROOT_DIR = SCRIPT_DIR.parents[0]
 RESULTS_DIR = ROOT_DIR / "results"
 MODELS_DIR = ROOT_DIR / "models"
 
-DATA_PIPELINE_SCRIPT = SCRIPT_DIR / "data_pipeline.py"
+VALIDATED_DATASET_PATH = ROOT_DIR / "data" / "dataset" / "validated_dataset.csv"
+
 REGRESSION_SCRIPT = SCRIPT_DIR / "train_regression.py"
 CLASSIFICATION_SCRIPT = SCRIPT_DIR / "train_classification.py"
 CLUSTERING_SCRIPT = SCRIPT_DIR / "train_clustering.py"
@@ -44,11 +45,6 @@ RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 # ------------------------------------------------------------
 
 STAGES: list[tuple[str, Path, list[str]]] = [
-    (
-        "Build Training Dataset",
-        DATA_PIPELINE_SCRIPT,
-        ["--mode", "training"],
-    ),
     (
         "Train Regression Model",
         REGRESSION_SCRIPT,
@@ -129,6 +125,22 @@ def save_model_pipeline_summary(summary: dict[str, Any]) -> None:
 
 
 # ------------------------------------------------------------
+# PRE-FLIGHT CHECKS
+# ------------------------------------------------------------
+
+def validate_required_inputs() -> tuple[bool, str | None]:
+    """Check that the validated training dataset exists before model training."""
+
+    if not VALIDATED_DATASET_PATH.is_file():
+        return (
+            False,
+            "Validated dataset not found. Run training/data_pipeline.py --mode training first.",
+        )
+
+    return True, None
+
+
+# ------------------------------------------------------------
 # STAGE EXECUTION
 # ------------------------------------------------------------
 
@@ -204,7 +216,7 @@ def run_stage(label: str, script_path: Path, args: list[str]) -> dict[str, Any]:
 # ------------------------------------------------------------
 
 def main() -> int:
-    """Run the full WinShield+ model training pipeline."""
+    """Run the WinShield+ model training pipeline."""
 
     print("\n=== WinShield+ Model Pipeline ===")
 
@@ -212,11 +224,32 @@ def main() -> int:
         "pipeline": "model_pipeline",
         "timestamp_utc": utc_timestamp(),
         "status": "running",
+        "input": {
+            "validated_dataset": {
+                "path": relative_path(VALIDATED_DATASET_PATH),
+                "exists": VALIDATED_DATASET_PATH.is_file(),
+                "size_bytes": (
+                    VALIDATED_DATASET_PATH.stat().st_size
+                    if VALIDATED_DATASET_PATH.is_file()
+                    else None
+                ),
+            }
+        },
         "stages": [],
         "artifacts": {},
     }
 
-    final_exit_code = 0
+    inputs_valid, error_message = validate_required_inputs()
+
+    if not inputs_valid:
+        print(f"[X] {error_message}")
+
+        summary["status"] = "failed"
+        summary["error"] = error_message
+        summary["artifacts"] = build_artifact_summary()
+        save_model_pipeline_summary(summary)
+
+        return 1
 
     for label, script_path, args in STAGES:
         stage_summary = run_stage(
@@ -228,13 +261,12 @@ def main() -> int:
         summary["stages"].append(stage_summary)
 
         if stage_summary["exit_code"] != 0:
-            final_exit_code = int(stage_summary["exit_code"])
             summary["status"] = "failed"
             summary["artifacts"] = build_artifact_summary()
             save_model_pipeline_summary(summary)
 
             print("\n[X] Model pipeline stopped.")
-            return final_exit_code
+            return int(stage_summary["exit_code"])
 
     summary["status"] = "completed"
     summary["artifacts"] = build_artifact_summary()
@@ -242,7 +274,6 @@ def main() -> int:
 
     print()
     print("=== Model Pipeline Complete ===")
-    print("[+] Training dataset rebuilt")
     print("[+] Regression model trained")
     print("[+] Classification model trained")
     print("[+] Clustering model trained")

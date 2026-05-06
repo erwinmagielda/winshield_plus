@@ -1,6 +1,6 @@
 # WinShield+
 
-WinShield+ is a Windows patch-state analysis and vulnerability prioritisation pipeline. It scans local Windows update state, correlates installed and missing KBs with Microsoft Security Response Center data, enriches related CVEs, builds training/runtime datasets, trains machine learning models, and ranks missing updates by predicted risk.
+WinShield+ is a Windows patch-state analysis and vulnerability prioritisation pipeline. It scans local Windows update state, correlates installed and missing KBs with Microsoft Security Response Center data, enriches related CVEs, builds training and runtime datasets, trains machine learning models, and ranks missing updates by predicted risk.
 
 The project is designed as a practical vulnerability management workflow rather than a simple patch checker. It combines PowerShell collection, MSRC CVRF correlation, Python data processing, and machine learning-based prioritisation.
 
@@ -78,6 +78,8 @@ regression_model.joblib
 classification_model.joblib
 clustering_model.joblib
 ```
+
+The data pipeline prepares the training dataset. The model pipeline trains models from the already prepared `validated_dataset.csv`.
 
 ### Runtime Pipeline
 
@@ -175,7 +177,7 @@ python remove_run.py
 
 ---
 
-### 2. Build training dataset
+### 2. Build the training dataset
 
 ```powershell
 python training\data_pipeline.py --mode training
@@ -195,17 +197,16 @@ results/training_pipeline_summary.json
 
 ### 3. Train all models
 
+Run this after the training dataset has been built.
+
 ```powershell
 python training\model_pipeline.py
 ```
 
-This runs:
+The model pipeline does not rebuild the dataset. It expects this file to already exist:
 
 ```text
-training/data_pipeline.py --mode training
-training/train_regression.py
-training/train_classification.py
-training/train_clustering.py
+data/dataset/validated_dataset.csv
 ```
 
 Generated model artefacts:
@@ -230,8 +231,6 @@ results/model_pipeline_summary.json
 
 ### 4. Scan current system
 
-Run:
-
 ```powershell
 python src\core\winshield_scanner.py
 ```
@@ -246,7 +245,7 @@ data/runtime/scan_YYYYMMDD_HHMMSS.json
 
 ---
 
-### 5. Build runtime dataset
+### 5. Build the runtime dataset
 
 ```powershell
 python training\data_pipeline.py --mode runtime
@@ -293,6 +292,8 @@ Menu options:
 4) Install Update
 5) Exit
 ```
+
+The Rank Risk option runs the runtime data pipeline and then the prioritiser.
 
 ---
 
