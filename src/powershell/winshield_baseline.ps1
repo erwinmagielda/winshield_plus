@@ -1,10 +1,16 @@
 <#
 .SYNOPSIS
-    WinShield Baseline
+    WinShield+ baseline collector.
 
 .DESCRIPTION
-    Collects host baseline metadata required for MSRC correlation.
+    Collects host metadata required for Windows/MSRC correlation.
+    Resolves operating system identity, architecture, latest MSRC month,
+    product name hints, privilege context, and latest cumulative update data.
+
     Emits a stable JSON object consumed by winshield_scanner.py.
+
+.OUTPUTS
+    JSON object written to stdout.
 #>
 
 # ------------------------------------------------------------
@@ -16,40 +22,50 @@ function Get-WinShieldLatestMsrcMonthId {
     try {
         Import-Module MsrcSecurityUpdates -ErrorAction Stop
 
-        $cmd  = Get-Command Get-MsrcCvrfDocument -ErrorAction Stop
-        $attr = $cmd.Parameters['ID'].Attributes |
+        $command = Get-Command Get-MsrcCvrfDocument -ErrorAction Stop
+        $validateSetAttribute = $command.Parameters['ID'].Attributes |
             Where-Object { $_ -is [System.Management.Automation.ValidateSetAttribute] } |
             Select-Object -First 1
 
-        if (-not $attr -or -not $attr.ValidValues) { return $null }
+        if (-not $validateSetAttribute -or -not $validateSetAttribute.ValidValues) {
+            return $null
+        }
 
-        $parsed = foreach ($id in $attr.ValidValues) {
+        $parsedMonthIds = foreach ($monthId in $validateSetAttribute.ValidValues) {
 
-            if (-not $id) { continue }
+            if (-not $monthId) {
+                continue
+            }
 
-            $parts = $id -split '-', 2
-            if ($parts.Count -ne 2) { continue }
+            $parts = $monthId -split '-', 2
+            if ($parts.Count -ne 2 -or -not $parts[1]) {
+                continue
+            }
 
-            $normMonth = $parts[1].Substring(0,1).ToUpper() + $parts[1].Substring(1).ToLower()
+            $normalisedMonth = $parts[1].Substring(0, 1).ToUpper() + $parts[1].Substring(1).ToLower()
 
             try {
-                $dt = [datetime]::ParseExact(
-                    "$($parts[0])-$normMonth",
+                $date = [datetime]::ParseExact(
+                    "$($parts[0])-$normalisedMonth",
                     'yyyy-MMM',
                     [System.Globalization.CultureInfo]::InvariantCulture
                 )
 
                 [pscustomobject]@{
-                    Id   = $id
-                    Date = $dt
+                    Id   = $monthId
+                    Date = $date
                 }
-
-            } catch {}
+            }
+            catch {
+                continue
+            }
         }
 
-        if (-not $parsed) { return $null }
+        if (-not $parsedMonthIds) {
+            return $null
+        }
 
-        return ($parsed | Sort-Object Date | Select-Object -Last 1).Id
+        return ($parsedMonthIds | Sort-Object Date | Select-Object -Last 1).Id
     }
     catch {
         return $null
@@ -57,7 +73,7 @@ function Get-WinShieldLatestMsrcMonthId {
 }
 
 # ------------------------------------------------------------
-# MSRC: PRODUCT RESOLUTION (SINGLE MONTH)
+# MSRC: PRODUCT RESOLUTION
 # ------------------------------------------------------------
 
 function Get-WinShieldProductNameHint {
@@ -68,71 +84,99 @@ function Get-WinShieldProductNameHint {
     )
 
     try {
-
         Import-Module MsrcSecurityUpdates -ErrorAction Stop
 
-        $os = Get-CimInstance Win32_OperatingSystem
-        $cv = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion'
+        $operatingSystem = Get-CimInstance Win32_OperatingSystem
+        $currentVersion = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion'
 
-        if ($os.Caption -like "*Windows 11*") { $family = "Windows 11" }
-        elseif ($os.Caption -like "*Windows 10*") { $family = "Windows 10" }
-        else { return $null }
+        if ($operatingSystem.Caption -like "*Windows 11*") {
+            $windowsFamily = "Windows 11"
+        }
+        elseif ($operatingSystem.Caption -like "*Windows 10*") {
+            $windowsFamily = "Windows 10"
+        }
+        else {
+            return $null
+        }
 
-        $displayVersion = $cv.DisplayVersion
-        if (-not $displayVersion) { $displayVersion = $cv.ReleaseId }
+        $displayVersion = $currentVersion.DisplayVersion
+        if (-not $displayVersion) {
+            $displayVersion = $currentVersion.ReleaseId
+        }
 
-        $archToken = switch ($env:PROCESSOR_ARCHITECTURE) {
+        $architectureToken = switch ($env:PROCESSOR_ARCHITECTURE) {
             'AMD64' { 'x64' }
             'ARM64' { 'ARM64' }
             'x86'   { '32-bit' }
             default { 'x64' }
         }
 
-        $doc = Get-MsrcCvrfDocument -ID $MonthId -ErrorAction Stop
-        $aff = Get-MsrcCvrfAffectedSoftware -Vulnerability $doc.Vulnerability -ProductTree $doc.ProductTree
-        if (-not $aff) { return $null }
+        $document = Get-MsrcCvrfDocument -ID $MonthId -ErrorAction Stop
+        $affectedSoftware = Get-MsrcCvrfAffectedSoftware -Vulnerability $document.Vulnerability -ProductTree $document.ProductTree
 
-        $windowsNames = $aff |
+        if (-not $affectedSoftware) {
+            return $null
+        }
+
+        $windowsProductNames = $affectedSoftware |
             Select-Object -ExpandProperty FullProductName -Unique |
             Where-Object { $_ -like "Windows *" } |
             Sort-Object
 
-        if (-not $windowsNames) { return $null }
+        if (-not $windowsProductNames) {
+            return $null
+        }
 
-        # --- EXACT MATCH (case-insensitive)
+        # Prefer an exact product match before falling back to generic or fuzzy matches.
         if ($displayVersion) {
 
-            $target = if ($archToken -eq '32-bit') {
-                "$family Version $displayVersion for 32-bit Systems"
+            $targetProductName = if ($architectureToken -eq '32-bit') {
+                "$windowsFamily Version $displayVersion for 32-bit Systems"
             } else {
-                "$family Version $displayVersion for $archToken-based Systems"
+                "$windowsFamily Version $displayVersion for $architectureToken-based Systems"
             }
 
-            $hit = $windowsNames | Where-Object { $_ -ieq $target } | Select-Object -First 1
-            if ($hit) { return $hit }
+            $match = $windowsProductNames |
+                Where-Object { $_ -ieq $targetProductName } |
+                Select-Object -First 1
+
+            if ($match) {
+                return $match
+            }
         }
 
-        # --- GENERIC MATCH
-        $target = if ($archToken -eq '32-bit') {
-            "$family for 32-bit Systems"
+        $targetProductName = if ($architectureToken -eq '32-bit') {
+            "$windowsFamily for 32-bit Systems"
         } else {
-            "$family for $archToken-based Systems"
+            "$windowsFamily for $architectureToken-based Systems"
         }
 
-        $hit = $windowsNames | Where-Object { $_ -ieq $target } | Select-Object -First 1
-        if ($hit) { return $hit }
+        $match = $windowsProductNames |
+            Where-Object { $_ -ieq $targetProductName } |
+            Select-Object -First 1
 
-        # --- FUZZY MATCH
-        if ($archToken -eq '32-bit') {
-            $hit = $windowsNames | Where-Object { $_ -like "$family*32-bit*" } | Select-Object -First 1
-        } else {
-            $hit = $windowsNames | Where-Object { $_ -like "$family*$archToken-based*" } | Select-Object -First 1
+        if ($match) {
+            return $match
         }
 
-        if ($hit) { return $hit }
+        if ($architectureToken -eq '32-bit') {
+            $match = $windowsProductNames |
+                Where-Object { $_ -like "$windowsFamily*32-bit*" } |
+                Select-Object -First 1
+        }
+        else {
+            $match = $windowsProductNames |
+                Where-Object { $_ -like "$windowsFamily*$architectureToken-based*" } |
+                Select-Object -First 1
+        }
 
-        # --- FINAL FALLBACK
-        return ($windowsNames | Where-Object { $_ -like "$family*" } | Select-Object -First 1)
+        if ($match) {
+            return $match
+        }
+
+        return ($windowsProductNames |
+            Where-Object { $_ -like "$windowsFamily*" } |
+            Select-Object -First 1)
     }
     catch {
         return $null
@@ -143,12 +187,12 @@ function Get-WinShieldProductNameHint {
 # SYSTEM IDENTITY
 # ------------------------------------------------------------
 
-$cv = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion'
-$os = Get-CimInstance Win32_OperatingSystem
+$currentVersion = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion'
+$operatingSystem = Get-CimInstance Win32_OperatingSystem
 
-$buildString = "$($cv.CurrentBuild).$($cv.UBR)"
+$buildString = "$($currentVersion.CurrentBuild).$($currentVersion.UBR)"
 
-$arch = switch ($env:PROCESSOR_ARCHITECTURE) {
+$architecture = switch ($env:PROCESSOR_ARCHITECTURE) {
     'AMD64' { 'x64' }
     'ARM64' { 'ARM64' }
     'x86'   { 'x86' }
@@ -159,35 +203,40 @@ $arch = switch ($env:PROCESSOR_ARCHITECTURE) {
 # PRIVILEGE CONTEXT
 # ------------------------------------------------------------
 
-$identity  = [Security.Principal.WindowsIdentity]::GetCurrent()
+$identity = [Security.Principal.WindowsIdentity]::GetCurrent()
 $principal = New-Object Security.Principal.WindowsPrincipal($identity)
-$isAdmin   = $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+$isAdmin = $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 
 # ------------------------------------------------------------
 # LCU ANCHOR
 # ------------------------------------------------------------
 
-$lcuMonthId     = $null
+$lcuMonthId = $null
 $lcuPackageName = $null
 $lcuInstallTime = $null
 
 if ($isAdmin) {
     try {
-        $pkg = Get-WindowsPackage -Online |
+        $latestCumulativeUpdate = Get-WindowsPackage -Online |
             Where-Object { $_.PackageName -like "*RollupFix*" } |
             Sort-Object InstallTime -Descending |
             Select-Object -First 1
 
-        if ($pkg) {
-            $lcuPackageName = $pkg.PackageName
-            $lcuInstallTime = $pkg.InstallTime
-            $lcuMonthId     = (Get-Date $pkg.InstallTime).ToString("yyyy-MMM")
+        if ($latestCumulativeUpdate) {
+            $lcuPackageName = $latestCumulativeUpdate.PackageName
+            $lcuInstallTime = $latestCumulativeUpdate.InstallTime
+            $lcuMonthId = (Get-Date $latestCumulativeUpdate.InstallTime).ToString("yyyy-MMM")
         }
-    } catch {}
+    }
+    catch {
+        $lcuMonthId = $null
+        $lcuPackageName = $null
+        $lcuInstallTime = $null
+    }
 }
 
 # ------------------------------------------------------------
-# MSRC RESOLUTION (WITH MONTH FALLBACK)
+# MSRC PRODUCT RESOLUTION
 # ------------------------------------------------------------
 
 $msrcLatestMonthId = Get-WinShieldLatestMsrcMonthId
@@ -197,23 +246,29 @@ $resolvedMonthId = $null
 
 if ($msrcLatestMonthId) {
 
-    $current = [datetime]::ParseExact(
-        $msrcLatestMonthId,
-        'yyyy-MMM',
-        [System.Globalization.CultureInfo]::InvariantCulture
-    )
+    try {
+        $latestMsrcDate = [datetime]::ParseExact(
+            $msrcLatestMonthId,
+            'yyyy-MMM',
+            [System.Globalization.CultureInfo]::InvariantCulture
+        )
 
-    for ($i = 0; $i -lt 6; $i++) {
+        # Product names can vary between MSRC documents, so recent months are checked in reverse order.
+        for ($i = 0; $i -lt 6; $i++) {
 
-        $monthId = $current.AddMonths(-$i).ToString("yyyy-MMM")
+            $monthId = $latestMsrcDate.AddMonths(-$i).ToString("yyyy-MMM")
+            $candidateProductName = Get-WinShieldProductNameHint -MonthId $monthId
 
-        $candidate = Get-WinShieldProductNameHint -MonthId $monthId
-
-        if ($candidate) {
-            $productNameHint = $candidate
-            $resolvedMonthId = $monthId
-            break
+            if ($candidateProductName) {
+                $productNameHint = $candidateProductName
+                $resolvedMonthId = $monthId
+                break
+            }
         }
+    }
+    catch {
+        $productNameHint = $null
+        $resolvedMonthId = $null
     }
 }
 
@@ -223,19 +278,19 @@ if ($msrcLatestMonthId) {
 
 [pscustomobject]@{
 
-    OsName                  = $os.Caption
-    OsEdition               = $cv.EditionID
-    DisplayVersion          = $cv.DisplayVersion
-    Build                   = $buildString
-    Architecture            = $arch
-    IsAdmin                 = $isAdmin
+    OsName                 = $operatingSystem.Caption
+    OsEdition              = $currentVersion.EditionID
+    DisplayVersion         = $currentVersion.DisplayVersion
+    Build                  = $buildString
+    Architecture           = $architecture
+    IsAdmin                = $isAdmin
 
-    LcuMonthId              = $lcuMonthId
-    LcuPackageName          = $lcuPackageName
-    LcuInstallTime          = $lcuInstallTime
+    LcuMonthId             = $lcuMonthId
+    LcuPackageName         = $lcuPackageName
+    LcuInstallTime         = $lcuInstallTime
 
-    MsrcLatestMonthId       = $msrcLatestMonthId
-    ResolvedProductMonthId  = $resolvedMonthId
-    ProductNameHint         = $productNameHint
+    MsrcLatestMonthId      = $msrcLatestMonthId
+    ResolvedProductMonthId = $resolvedMonthId
+    ProductNameHint        = $productNameHint
 
 } | ConvertTo-Json -Depth 4
