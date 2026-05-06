@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    WinShield Metadata
+    WinShield+ vulnerability metadata collector.
 
 .DESCRIPTION
     Retrieves vulnerability metadata from Microsoft Security Response Center (MSRC)
@@ -9,7 +9,10 @@
     Extracts CVE severity, CVSS base score, CVSS vector, publication date,
     and exploitation status.
 
-    Emits a JSON object consumed by enrich.py in the WinShield pipeline.
+    Emits a JSON object consumed by the WinShield+ enrichment pipeline.
+
+.OUTPUTS
+    JSON object written to stdout.
 #>
 
 param(
@@ -21,13 +24,26 @@ param(
 # MODULE DEPENDENCY
 # ------------------------------------------------------------
 
-Import-Module MsrcSecurityUpdates -ErrorAction Stop
+try {
+    Import-Module MsrcSecurityUpdates -ErrorAction Stop
+}
+catch {
+    [pscustomobject]@{
+        Error   = "Failed to load MsrcSecurityUpdates"
+        Details = $_.Exception.Message
+    } | ConvertTo-Json -Depth 5
+
+    exit 1
+}
 
 # ------------------------------------------------------------
 # INPUT NORMALISATION
 # ------------------------------------------------------------
 
-$months = $MonthIds -split "," | ForEach-Object { $_.Trim() } | Where-Object { $_ }
+$monthIds = $MonthIds -split "," |
+    ForEach-Object { $_.Trim() } |
+    Where-Object { $_ } |
+    Sort-Object -Unique
 
 # ------------------------------------------------------------
 # AGGREGATION CONTAINER
@@ -39,35 +55,53 @@ $results = @{}
 # PER-MONTH PROCESSING
 # ------------------------------------------------------------
 
-foreach ($month in $months) {
+foreach ($monthId in $monthIds) {
 
-    $doc = Get-MsrcCvrfDocument -ID $month
+    try {
+        $document = Get-MsrcCvrfDocument -ID $monthId -ErrorAction Stop
+    }
+    catch {
+        continue
+    }
 
-    foreach ($v in $doc.Vulnerability) {
+    if (-not $document -or -not $document.Vulnerability) {
+        continue
+    }
 
-        $cve = $v.CVE
+    foreach ($vulnerability in $document.Vulnerability) {
 
-        $severity = ($v.Threats |
+        $cve = $vulnerability.CVE
+        if (-not $cve) {
+            continue
+        }
+
+        $severity = ($vulnerability.Threats |
             Where-Object { $_.Type -eq 3 } |
             Select-Object -First 1).Description.Value
 
-        $exploit = ($v.Threats |
+        $exploitation = ($vulnerability.Threats |
             Where-Object { $_.Type -eq 1 } |
             Select-Object -First 1).Description.Value
 
-        $cvss = $v.CVSSScoreSets | Select-Object -First 1
+        $cvss = $vulnerability.CVSSScoreSets | Select-Object -First 1
 
-        $baseScore = $cvss.BaseScore
-        $vector = $cvss.Vector
+        $baseScore = $null
+        $vector = $null
 
-        $published = ($v.RevisionHistory | Select-Object -First 1).Date
+        if ($cvss) {
+            $baseScore = $cvss.BaseScore
+            $vector = $cvss.Vector
+        }
+
+        $publishedDate = ($vulnerability.RevisionHistory |
+            Select-Object -First 1).Date
 
         $results[$cve] = @{
             Severity      = $severity
             BaseScore     = $baseScore
             Vector        = $vector
-            PublishedDate = $published
-            Exploitation  = $exploit
+            PublishedDate = $publishedDate
+            Exploitation  = $exploitation
         }
     }
 }

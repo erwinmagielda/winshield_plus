@@ -1,10 +1,13 @@
 <#
 .SYNOPSIS
-    WinShield Adapter
+    WinShield+ MSRC adapter.
 
 .DESCRIPTION
     Aggregates MSRC CVRF data for a specific Windows product across one or more MonthIds.
-    Emits a JSON object consumed by winshield_scanner.py.
+    Builds KB-to-CVE mappings and supersedence data used by winshield_scanner.py.
+
+.OUTPUTS
+    JSON object written to stdout.
 #>
 
 param(
@@ -32,6 +35,7 @@ if (-not $MonthIds -or -not $ProductNameHint) {
         MonthIds        = $MonthIds
         ProductNameHint = $ProductNameHint
     } | ConvertTo-Json -Depth 5
+
     exit 1
 }
 
@@ -47,6 +51,7 @@ catch {
         Error   = "Failed to load MsrcSecurityUpdates"
         Details = $_.Exception.Message
     } | ConvertTo-Json -Depth 5
+
     exit 1
 }
 
@@ -60,51 +65,57 @@ $kbMap = @{}
 # PER-MONTH PROCESSING
 # ------------------------------------------------------------
 
-foreach ($month in $MonthIds) {
+foreach ($monthId in $MonthIds) {
 
     try {
-        $doc = Get-MsrcCvrfDocument -ID $month -ErrorAction Stop
-        $aff = Get-MsrcCvrfAffectedSoftware `
-            -Vulnerability $doc.Vulnerability `
-            -ProductTree $doc.ProductTree
+        $document = Get-MsrcCvrfDocument -ID $monthId -ErrorAction Stop
+        $affectedSoftware = Get-MsrcCvrfAffectedSoftware `
+            -Vulnerability $document.Vulnerability `
+            -ProductTree $document.ProductTree
     }
     catch {
         continue
     }
 
-    if (-not $aff) { continue }
+    if (-not $affectedSoftware) {
+        continue
+    }
 
-    $rows = $aff | Where-Object { $_.FullProductName -eq $ProductNameHint }
-    if (-not $rows) { continue }
+    $productRows = $affectedSoftware | Where-Object { $_.FullProductName -eq $ProductNameHint }
+    if (-not $productRows) {
+        continue
+    }
 
-    foreach ($row in $rows) {
+    foreach ($productRow in $productRows) {
 
         $cveList = @()
-        if ($row.CVE) {
-            $cveList = @($row.CVE)
+        if ($productRow.CVE) {
+            $cveList = @($productRow.CVE)
         }
 
-        $supersedes = @()
+        $supersededKbs = @()
 
-        if ($row.Supercedence) {
-            foreach ($s in @($row.Supercedence)) {
-                if ($s -and $s -match '(\d{4,7})') {
-                    $supersedes += "KB$($Matches[1])"
+        if ($productRow.Supercedence) {
+            foreach ($supersedenceEntry in @($productRow.Supercedence)) {
+                if ($supersedenceEntry -and $supersedenceEntry -match '(\d{4,7})') {
+                    $supersededKbs += "KB$($Matches[1])"
                 }
             }
         }
 
-        $supersedes = $supersedes | Sort-Object -Unique
+        $supersededKbs = $supersededKbs | Sort-Object -Unique
 
-        foreach ($kbObj in @($row.KBArticle)) {
+        foreach ($kbArticle in @($productRow.KBArticle)) {
 
-            if (-not $kbObj -or -not $kbObj.ID) { continue }
+            if (-not $kbArticle -or -not $kbArticle.ID) {
+                continue
+            }
 
-            $kb = if ($kbObj.ID -like 'KB*') {
-                $kbObj.ID
+            $kb = if ($kbArticle.ID -like 'KB*') {
+                $kbArticle.ID
             }
             else {
-                "KB$($kbObj.ID)"
+                "KB$($kbArticle.ID)"
             }
 
             if (-not $kbMap.ContainsKey($kb)) {
@@ -116,19 +127,19 @@ foreach ($month in $MonthIds) {
                 }
             }
 
-            if ($kbMap[$kb].Months -notcontains $month) {
-                $kbMap[$kb].Months += $month
+            if ($kbMap[$kb].Months -notcontains $monthId) {
+                $kbMap[$kb].Months += $monthId
             }
 
-            foreach ($c in $cveList) {
-                if ($c -and $kbMap[$kb].Cves -notcontains $c) {
-                    $kbMap[$kb].Cves += $c
+            foreach ($cve in $cveList) {
+                if ($cve -and $kbMap[$kb].Cves -notcontains $cve) {
+                    $kbMap[$kb].Cves += $cve
                 }
             }
 
-            foreach ($s in $supersedes) {
-                if ($s -and $kbMap[$kb].Supersedes -notcontains $s) {
-                    $kbMap[$kb].Supersedes += $s
+            foreach ($supersededKb in $supersededKbs) {
+                if ($supersededKb -and $kbMap[$kb].Supersedes -notcontains $supersededKb) {
+                    $kbMap[$kb].Supersedes += $supersededKb
                 }
             }
         }
