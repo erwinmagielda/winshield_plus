@@ -17,7 +17,7 @@
 
 param(
     [Parameter(Mandatory = $true)]
-    [string]$MonthIds
+    [string[]]$MonthIds
 )
 
 # ------------------------------------------------------------
@@ -28,11 +28,7 @@ try {
     Import-Module MsrcSecurityUpdates -ErrorAction Stop
 }
 catch {
-    [pscustomobject]@{
-        Error   = "Failed to load MsrcSecurityUpdates"
-        Details = $_.Exception.Message
-    } | ConvertTo-Json -Depth 5
-
+    Write-Error "Failed to load MsrcSecurityUpdates: $($_.Exception.Message)"
     exit 1
 }
 
@@ -40,10 +36,23 @@ catch {
 # INPUT NORMALISATION
 # ------------------------------------------------------------
 
-$monthIds = $MonthIds -split "," |
-    ForEach-Object { $_.Trim() } |
-    Where-Object { $_ } |
-    Sort-Object -Unique
+$monthIds = @(
+    foreach ($item in $MonthIds) {
+
+        if (-not $item) {
+            continue
+        }
+
+        $item -split "[,\s]+" |
+            ForEach-Object { $_.Trim() } |
+            Where-Object { $_ }
+    }
+) | Sort-Object -Unique
+
+if (-not $monthIds) {
+    Write-Error "No MonthIds were supplied."
+    exit 1
+}
 
 # ------------------------------------------------------------
 # AGGREGATION CONTAINER
@@ -58,10 +67,11 @@ $results = @{}
 foreach ($monthId in $monthIds) {
 
     try {
-        $document = Get-MsrcCvrfDocument -ID $monthId -ErrorAction Stop
+        $document = Get-MsrcCvrfDocument -ID $monthId
     }
     catch {
-        continue
+        Write-Error "Failed to retrieve MSRC CVRF document for $monthId`: $($_.Exception.Message)"
+        exit 1
     }
 
     if (-not $document -or -not $document.Vulnerability) {
@@ -71,7 +81,14 @@ foreach ($monthId in $monthIds) {
     foreach ($vulnerability in $document.Vulnerability) {
 
         $cve = $vulnerability.CVE
+
         if (-not $cve) {
+            continue
+        }
+
+        $cve = ([string]$cve).Trim().ToUpper()
+
+        if (-not $cve.StartsWith("CVE-")) {
             continue
         }
 
@@ -83,7 +100,8 @@ foreach ($monthId in $monthIds) {
             Where-Object { $_.Type -eq 1 } |
             Select-Object -First 1).Description.Value
 
-        $cvss = $vulnerability.CVSSScoreSets | Select-Object -First 1
+        $cvss = $vulnerability.CVSSScoreSets |
+            Select-Object -First 1
 
         $baseScore = $null
         $vector = $null
