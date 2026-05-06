@@ -1,170 +1,304 @@
-import os
-import joblib
-import pandas as pd
+"""
+WinShield+ clustering model training.
 
-from sklearn.preprocessing import StandardScaler, OneHotEncoder
-from sklearn.compose import ColumnTransformer
-from sklearn.cluster import KMeans
+Trains a KMeans clustering model on validated WinShield+ vulnerability data.
+Uses the elbow method for exploratory cluster selection, then saves the final
+clustering model, preprocessor, and feature list for runtime prioritisation.
+"""
+
+from pathlib import Path
+from typing import Any
+
+import joblib
 import matplotlib.pyplot as plt
+import pandas as pd
+from sklearn.cluster import KMeans
+from sklearn.compose import ColumnTransformer
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 
 # ------------------------------------------------------------
 # PATHS
 # ------------------------------------------------------------
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BASE_DIR = Path(__file__).resolve().parents[1]
 
-DATA_PATH = os.path.join(BASE_DIR, "data", "dataset", "validated_dataset.csv")
-MODELS_DIR = os.path.join(BASE_DIR, "models")
+DATA_PATH = BASE_DIR / "data" / "dataset" / "validated_dataset.csv"
+MODELS_DIR = BASE_DIR / "models"
 
-os.makedirs(MODELS_DIR, exist_ok=True)
+MODEL_PATH = MODELS_DIR / "clustering_model.joblib"
+PREPROCESSOR_PATH = MODELS_DIR / "clustering_preprocessor.joblib"
+FEATURES_PATH = MODELS_DIR / "clustering_features.joblib"
 
-
-# ------------------------------------------------------------
-# STEP 1: LOAD DATA
-# ------------------------------------------------------------
-
-df = pd.read_csv(DATA_PATH)
-
-print("\n=== Clustering Training ===\n")
-print("Dataset shape:", df.shape)
+MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 # ------------------------------------------------------------
-# STEP 2: TRANSFORM FEATURE
+# CONFIGURATION
 # ------------------------------------------------------------
 
-df["exploited_flag"] = df["exploitation"].apply(
-    lambda x: 1 if "Exploited:Yes" in str(x) else 0
-)
-
-print("\nExploitation flag distribution:")
-print(df["exploited_flag"].value_counts())
+RANDOM_STATE = 2137
+MAX_K = 10
+OPTIMAL_K = 5
 
 
 # ------------------------------------------------------------
-# STEP 3: DEFINE FEATURES (NO TARGET)
+# DATA LOADING
 # ------------------------------------------------------------
 
-X = df.drop([
-    "risk_score",
-    "priority_label",
-    "kb_id",
-    "cve_id",
-    "month",
-    "published_date",
-    "exploitation"
-], axis=1)
+def load_training_data() -> pd.DataFrame:
+    """Load validated training data."""
 
-print("\nFeature shape:", X.shape)
+    if not DATA_PATH.is_file():
+        raise RuntimeError("Validated dataset not found. Run data_pipeline.py first.")
+
+    return pd.read_csv(DATA_PATH)
 
 
 # ------------------------------------------------------------
-# STEP 4: FEATURE TYPE SEPARATION
+# FEATURE PREPARATION
 # ------------------------------------------------------------
 
-numeric_features = X.select_dtypes(include=["int64", "float64"]).columns
-categorical_features = X.select_dtypes(include=["object", "string"]).columns
+def add_exploitation_flag(dataframe: pd.DataFrame) -> pd.DataFrame:
+    """Create a binary exploitation flag from MSRC exploitation text."""
 
-print("\nNumeric features:", list(numeric_features))
-print("Categorical features:", list(categorical_features))
+    training_data = dataframe.copy()
+
+    training_data["exploited_flag"] = training_data["exploitation"].apply(
+        lambda value: 1 if "Exploited:Yes" in str(value) else 0
+    )
+
+    return training_data
 
 
-# ------------------------------------------------------------
-# STEP 5: PREPROCESSING (ENCODE + SCALE)
-# ------------------------------------------------------------
+def build_features(training_data: pd.DataFrame) -> pd.DataFrame:
+    """Build clustering features from validated training data."""
 
-preprocessor = ColumnTransformer([
-    ("num", StandardScaler(), numeric_features),
-    ("cat", OneHotEncoder(handle_unknown="ignore"), categorical_features)
-])
+    drop_columns = [
+        "risk_score",
+        "priority_label",
+        "kb_id",
+        "cve_id",
+        "month",
+        "published_date",
+        "exploitation",
+    ]
 
-X_processed = preprocessor.fit_transform(X)
+    return training_data.drop(columns=drop_columns)
 
-print("\nProcessed shape:", X_processed.shape)
 
-# SET READY
-feature_names = preprocessor.get_feature_names_out().astype(str)
+def build_preprocessor(features: pd.DataFrame) -> ColumnTransformer:
+    """Build preprocessing transformer for numeric and categorical features."""
 
-X_preview = pd.DataFrame(X_processed, columns=feature_names)
+    numeric_features = features.select_dtypes(include=["int64", "float64"]).columns
+    categorical_features = features.select_dtypes(
+        include=["object", "string"]
+    ).columns
 
-print("\n=== Processed Dataset Preview (Top 20) ===")
-print(X_preview.head(20))
-
-# ------------------------------------------------------------
-# STEP 6: ELBOW METHOD
-# ------------------------------------------------------------
-
-wcss = []
-
-for i in range(1, 11):
-    km = KMeans(n_clusters=i, random_state=2137)
-    km.fit(X_processed)
-    wcss.append(km.inertia_)
-
-print("\nWCSS values:")
-print(wcss)
-
-plt.figure()
-plt.plot(range(1, 11), wcss, marker='o')
-plt.title("Elbow Method")
-plt.xlabel("Number of Clusters (K)")
-plt.ylabel("WCSS")
-plt.show()
+    return ColumnTransformer(
+        [
+            ("num", StandardScaler(), numeric_features),
+            ("cat", OneHotEncoder(handle_unknown="ignore"), categorical_features),
+        ]
+    )
 
 
 # ------------------------------------------------------------
-# STEP 7: SELECT K
+# REPORTING
 # ------------------------------------------------------------
 
-optimal_k = 5
-print(f"\nSelected K = {optimal_k}")
+def print_feature_summary(features: pd.DataFrame) -> None:
+    """Print numeric and categorical feature groups."""
+
+    numeric_features = features.select_dtypes(include=["int64", "float64"]).columns
+    categorical_features = features.select_dtypes(include=["object", "string"]).columns
+
+    print("\nNumeric features:", list(numeric_features))
+    print("Categorical features:", list(categorical_features))
+
+
+def print_processed_preview(
+    processed_features: Any,
+    preprocessor: ColumnTransformer,
+    rows: int = 20,
+) -> None:
+    """Print a small preview of the processed training matrix."""
+
+    feature_names = preprocessor.get_feature_names_out().astype(str)
+
+    if hasattr(processed_features, "toarray"):
+        preview_data = processed_features[:rows].toarray()
+    else:
+        preview_data = processed_features[:rows]
+
+    preview = pd.DataFrame(preview_data, columns=feature_names)
+
+    print("\n=== Processed Dataset Preview (Top 20) ===")
+    print(preview.head(rows))
+
+
+def print_cluster_summary(training_data: pd.DataFrame) -> None:
+    """Print cluster distribution and basic cluster interpretation metrics."""
+
+    print("\n=== Cluster Distribution ===")
+    print(training_data["cluster"].value_counts())
+
+    print("\n=== Cluster vs Risk Score ===")
+    print(training_data.groupby("cluster")["risk_score"].mean())
+
+    print("\n=== Cluster vs CVSS ===")
+    print(training_data.groupby("cluster")["cvss_score"].mean())
+
+    print("\n=== Cluster vs Exploited ===")
+    print(training_data.groupby("cluster")["exploited_flag"].mean())
 
 
 # ------------------------------------------------------------
-# STEP 8: TRAIN FINAL MODEL
+# ELBOW ANALYSIS
 # ------------------------------------------------------------
 
-kmeans = KMeans(n_clusters=optimal_k, random_state=2137)
-kmeans.fit(X_processed)
+def calculate_wcss(processed_features: Any, max_k: int = MAX_K) -> list[float]:
+    """Calculate WCSS values for KMeans elbow analysis."""
+
+    wcss: list[float] = []
+
+    for cluster_count in range(1, max_k + 1):
+        model = KMeans(
+            n_clusters=cluster_count,
+            random_state=RANDOM_STATE,
+        )
+
+        model.fit(processed_features)
+        wcss.append(model.inertia_)
+
+    return wcss
+
+
+def plot_elbow_curve(wcss: list[float]) -> None:
+    """Plot the elbow curve for visual K selection."""
+
+    plt.figure()
+    plt.plot(range(1, len(wcss) + 1), wcss, marker="o")
+    plt.title("Elbow Method")
+    plt.xlabel("Number of Clusters (K)")
+    plt.ylabel("WCSS")
+    plt.show()
+
+
+def plot_cluster_scatter(training_data: pd.DataFrame) -> None:
+    """Plot CVSS score against risk score using cluster assignments."""
+
+    plt.figure()
+    plt.scatter(
+        training_data["cvss_score"],
+        training_data["risk_score"],
+        c=training_data["cluster"],
+        alpha=0.5,
+    )
+    plt.title("CVSS vs Risk Score")
+    plt.xlabel("CVSS Score")
+    plt.ylabel("Risk Score")
+    plt.show()
 
 
 # ------------------------------------------------------------
-# STEP 9: CLUSTER ASSIGNMENT
+# MODEL TRAINING
 # ------------------------------------------------------------
 
-clusters = kmeans.predict(X_processed)
-df["cluster"] = clusters
+def train_model(processed_features: Any, cluster_count: int = OPTIMAL_K) -> KMeans:
+    """Train the final KMeans clustering model."""
+
+    model = KMeans(
+        n_clusters=cluster_count,
+        random_state=RANDOM_STATE,
+    )
+
+    model.fit(processed_features)
+
+    return model
 
 
 # ------------------------------------------------------------
-# STEP 10: CLUSTER INTERPRETATION
+# MODEL EXPORT
 # ------------------------------------------------------------
 
-print("\n=== Cluster Distribution ===")
-print(df["cluster"].value_counts())
+def save_artifacts(
+    model: KMeans,
+    preprocessor: ColumnTransformer,
+    features: pd.DataFrame,
+) -> None:
+    """Save trained clustering model, preprocessor, and feature list."""
 
-print("\n=== Cluster vs Risk Score ===")
-print(df.groupby("cluster")["risk_score"].mean())
+    joblib.dump(model, MODEL_PATH)
+    joblib.dump(preprocessor, PREPROCESSOR_PATH)
+    joblib.dump(features.columns.tolist(), FEATURES_PATH)
 
-print("\n=== Cluster vs CVSS ===")
-print(df.groupby("cluster")["cvss_score"].mean())
+    print("\n[+] Model saved to:", MODEL_PATH)
+    print("[+] Preprocessor saved to:", PREPROCESSOR_PATH)
+    print("[+] Feature list saved to:", FEATURES_PATH)
 
-print("\n=== Cluster vs Exploited ===")
-print(df.groupby("cluster")["exploited_flag"].mean())
-
-plt.scatter(df["cvss_score"], df["risk_score"], c=df["cluster"], cmap="viridis", alpha=0.5)
-plt.title("CVSS vs Risk Score")
-plt.xlabel("CVSS Score")
-plt.ylabel("Risk Score")
-plt.show()
 
 # ------------------------------------------------------------
-# STEP 11: SAVE MODEL + PREPROCESSOR
+# MAIN WORKFLOW
 # ------------------------------------------------------------
 
-joblib.dump(kmeans, os.path.join(MODELS_DIR, "clustering_model.joblib"))
-joblib.dump(preprocessor, os.path.join(MODELS_DIR, "clustering_preprocessor.joblib"))
-joblib.dump(X.columns.tolist(), os.path.join(MODELS_DIR, "clustering_features.joblib"))
+def main() -> None:
+    print("\n=== Clustering Training ===\n")
 
-print("\nClustering model saved.")
+    training_data = load_training_data()
+    training_data = add_exploitation_flag(training_data)
+
+    print("Dataset shape:", training_data.shape)
+
+    print("\nExploitation flag distribution:")
+    print(training_data["exploited_flag"].value_counts())
+
+    features = build_features(training_data)
+
+    print("\nFeature shape:", features.shape)
+    print_feature_summary(features)
+
+    preprocessor = build_preprocessor(features)
+    processed_features = preprocessor.fit_transform(features)
+
+    print("\nProcessed shape:", processed_features.shape)
+
+    print_processed_preview(
+        processed_features=processed_features,
+        preprocessor=preprocessor,
+    )
+
+    wcss = calculate_wcss(processed_features)
+
+    print("\nWCSS values:")
+    print(wcss)
+
+    plot_elbow_curve(wcss)
+
+    print(f"\nSelected K = {OPTIMAL_K}")
+
+    model = train_model(
+        processed_features=processed_features,
+        cluster_count=OPTIMAL_K,
+    )
+
+    training_data["cluster"] = model.predict(processed_features)
+
+    print_cluster_summary(training_data)
+    plot_cluster_scatter(training_data)
+
+    save_artifacts(
+        model=model,
+        preprocessor=preprocessor,
+        features=features,
+    )
+
+    print("\n=== Training Complete ===\n")
+
+
+# ------------------------------------------------------------
+# ENTRY POINT
+# ------------------------------------------------------------
+
+if __name__ == "__main__":
+    main()
