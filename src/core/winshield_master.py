@@ -1,27 +1,25 @@
 """
-WinShield Master
+WinShield+ master runner.
 
-Operator entry point for the WinShield workflow.
+Provides an operator menu for running scanner, prioritisation,
+download, and install stages from a single entry point.
 """
 
-import os
 import subprocess
 import sys
-from typing import Dict, Tuple
+from pathlib import Path
 
 
 # ------------------------------------------------------------
 # PATHS
 # ------------------------------------------------------------
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-SRC_DIR = os.path.dirname(SCRIPT_DIR)
-ROOT_DIR = os.path.dirname(SRC_DIR)
+SCRIPT_DIR = Path(__file__).resolve().parent
+ROOT_DIR = SCRIPT_DIR.parents[1]
+TRAINING_DIR = ROOT_DIR / "training"
 
-TRAINING_DIR = os.path.join(ROOT_DIR, "training")
-
-DATA_PIPELINE_SCRIPT = os.path.join(TRAINING_DIR, "data_pipeline.py")
-PRIORITISER_SCRIPT = os.path.join(SCRIPT_DIR, "winshield_prioritiser.py")
+DATA_PIPELINE_SCRIPT = TRAINING_DIR / "data_pipeline.py"
+PRIORITISER_SCRIPT = SCRIPT_DIR / "winshield_prioritiser.py"
 
 PYTHON_EXE = sys.executable
 
@@ -30,21 +28,22 @@ PYTHON_EXE = sys.executable
 # STAGES
 # ------------------------------------------------------------
 
-STAGES: Dict[str, Tuple[str, str]] = {
-    "1": ("Scan System", os.path.join(SCRIPT_DIR, "winshield_scanner.py")),
-    "3": ("Download KB", os.path.join(SCRIPT_DIR, "winshield_downloader.py")),
-    "4": ("Install KB", os.path.join(SCRIPT_DIR, "winshield_installer.py")),
+STAGES: dict[str, tuple[str, Path]] = {
+    "1": ("Scan System", SCRIPT_DIR / "winshield_scanner.py"),
+    "3": ("Download Update", SCRIPT_DIR / "winshield_downloader.py"),
+    "4": ("Install Update", SCRIPT_DIR / "winshield_installer.py"),
 }
 
 
 # ------------------------------------------------------------
-# RUN SINGLE STAGE
+# STAGE EXECUTION
 # ------------------------------------------------------------
 
-def run_stage(label: str, path: str) -> int:
+def run_stage(label: str, script_path: Path) -> int:
+    """Run a single workflow stage and return its exit code."""
 
-    if not os.path.isfile(path):
-        print(f"[X] Stage script not found: {path}")
+    if not script_path.is_file():
+        print(f"[X] Stage script not found: {script_path}")
         return 1
 
     print()
@@ -53,12 +52,12 @@ def run_stage(label: str, path: str) -> int:
 
     try:
         completed = subprocess.run(
-            [PYTHON_EXE, path],
+            [PYTHON_EXE, str(script_path)],
             cwd=ROOT_DIR,
             check=False,
         )
 
-        rc = int(completed.returncode or 0)
+        return_code = int(completed.returncode or 0)
 
     except KeyboardInterrupt:
         print("\n[!] Cancelled by user.")
@@ -70,19 +69,20 @@ def run_stage(label: str, path: str) -> int:
 
     print("=" * 60)
 
-    if rc == 0:
+    if return_code == 0:
         print("[+] Finished successfully\n")
     else:
-        print(f"[!] Finished with exit code {rc}\n")
+        print(f"[!] Finished with exit code {return_code}\n")
 
-    return rc
+    return return_code
 
 
 # ------------------------------------------------------------
-# RUNTIME PIPELINE (RANK RISK)
+# RUNTIME PIPELINE
 # ------------------------------------------------------------
 
 def run_runtime_pipeline() -> int:
+    """Run runtime data preparation followed by KB prioritisation."""
 
     pipeline = [
         (DATA_PIPELINE_SCRIPT, ["--mode", "runtime"]),
@@ -92,18 +92,19 @@ def run_runtime_pipeline() -> int:
     print("[*] Starting vulnerability prioritisation pipeline\n")
     print(f"[*] Root directory: {ROOT_DIR}\n")
 
-    for script, args in pipeline:
+    for script_path, args in pipeline:
 
-        if not os.path.isfile(script):
-            print(f"[X] Missing pipeline script: {script}")
+        if not script_path.is_file():
+            print(f"[X] Missing pipeline script: {script_path}")
             return 1
 
-        print(f"[*] Running {os.path.basename(script)}")
+        print(f"[*] Running {script_path.name}")
 
         try:
             result = subprocess.run(
-                [PYTHON_EXE, script, *args],
-                cwd=ROOT_DIR
+                [PYTHON_EXE, str(script_path), *args],
+                cwd=ROOT_DIR,
+                check=False,
             )
 
         except KeyboardInterrupt:
@@ -116,7 +117,7 @@ def run_runtime_pipeline() -> int:
 
         if result.returncode != 0:
             print("[X] Pipeline stage failed.\n")
-            return result.returncode
+            return int(result.returncode)
 
     print("[+] Pipeline completed successfully.\n")
     return 0
@@ -127,9 +128,10 @@ def run_runtime_pipeline() -> int:
 # ------------------------------------------------------------
 
 def print_menu() -> None:
+    """Print the interactive operator menu."""
 
     print("=" * 43)
-    print("                 WinShield")
+    print("                WinShield+")
     print("=" * 43)
     print("1) Scan System")
     print("2) Rank Risk")
@@ -140,6 +142,7 @@ def print_menu() -> None:
 
 
 def read_choice() -> str:
+    """Read a non-empty menu choice from stdin."""
 
     while True:
         try:
@@ -158,6 +161,7 @@ def read_choice() -> str:
 # ------------------------------------------------------------
 
 def main() -> int:
+    """Run the interactive WinShield+ menu."""
 
     while True:
 
@@ -165,27 +169,27 @@ def main() -> int:
         choice = read_choice()
 
         if choice == "5":
-            print("Exiting WinShield.")
+            print("Exiting WinShield+.")
             return 0
 
         if choice == "2":
-            rc = run_runtime_pipeline()
-            if rc != 0:
-                print(f"[!] Pipeline exited with code {rc}\n")
+            return_code = run_runtime_pipeline()
+            if return_code != 0:
+                print(f"[!] Pipeline exited with code {return_code}\n")
             continue
 
         if choice in STAGES:
-            label, path = STAGES[choice]
-            rc = run_stage(label, path)
-            if rc != 0:
-                print(f"[!] Stage exited with code {rc}\n")
+            label, script_path = STAGES[choice]
+            return_code = run_stage(label, script_path)
+            if return_code != 0:
+                print(f"[!] Stage exited with code {return_code}\n")
             continue
 
         print("[!] Invalid selection.\n")
 
 
 # ------------------------------------------------------------
-# ENTRYPOINT
+# ENTRY POINT
 # ------------------------------------------------------------
 
 if __name__ == "__main__":

@@ -1,116 +1,122 @@
-import os
+"""
+WinShield+ prioritiser.
+
+Loads validated runtime vulnerability data, applies trained regression,
+classification, and clustering models, then ranks missing KBs by predicted risk.
+Exports ranked prioritisation results for review or downstream automation.
+"""
+
 import json
-import pandas as pd
+from pathlib import Path
+from typing import Any
+
 import joblib
+import pandas as pd
 
 
 # ------------------------------------------------------------
 # PATHS
 # ------------------------------------------------------------
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-ROOT_DIR = os.path.dirname(os.path.dirname(SCRIPT_DIR))
+SCRIPT_DIR = Path(__file__).resolve().parent
+ROOT_DIR = SCRIPT_DIR.parents[1]
 
-RUNTIME_DIR = os.path.join(ROOT_DIR, "data", "runtime")
-MODELS_DIR = os.path.join(ROOT_DIR, "models")
-RESULTS_DIR = os.path.join(ROOT_DIR, "results")
+RUNTIME_DIR = ROOT_DIR / "data" / "runtime"
+MODELS_DIR = ROOT_DIR / "models"
+RESULTS_DIR = ROOT_DIR / "results"
 
-os.makedirs(RESULTS_DIR, exist_ok=True)
+RUNTIME_DATA_PATH = RUNTIME_DIR / "validated_runtime.csv"
 
-RUNTIME_DATA = os.path.join(RUNTIME_DIR, "validated_runtime.csv")
+REGRESSION_MODEL_PATH = MODELS_DIR / "regression_model.joblib"
+REGRESSION_PREPROCESSOR_PATH = MODELS_DIR / "regression_preprocessor.joblib"
 
-REGRESSION_MODEL = os.path.join(MODELS_DIR, "regression_model.joblib")
-REGRESSION_PREPROCESSOR = os.path.join(MODELS_DIR, "regression_preprocessor.joblib")
+CLASSIFICATION_MODEL_PATH = MODELS_DIR / "classification_model.joblib"
+CLASSIFICATION_PREPROCESSOR_PATH = MODELS_DIR / "classification_preprocessor.joblib"
 
-CLASSIFICATION_MODEL = os.path.join(MODELS_DIR, "classification_model.joblib")
-CLASSIFICATION_PREPROCESSOR = os.path.join(MODELS_DIR, "classification_preprocessor.joblib")
+CLUSTERING_MODEL_PATH = MODELS_DIR / "clustering_model.joblib"
+CLUSTERING_PREPROCESSOR_PATH = MODELS_DIR / "clustering_preprocessor.joblib"
 
-CLUSTERING_MODEL = os.path.join(MODELS_DIR, "clustering_model.joblib")
-CLUSTERING_PREPROCESSOR = os.path.join(MODELS_DIR, "clustering_preprocessor.joblib")
+RESULTS_PATH = RESULTS_DIR / "ranking_results.json"
 
-RESULTS_PATH = os.path.join(RESULTS_DIR, "ranking_results.json")
-
-
-# ------------------------------------------------------------
-# LOAD DATA
-# ------------------------------------------------------------
-
-def load_runtime_data():
-
-    if not os.path.exists(RUNTIME_DATA):
-        raise RuntimeError("Run runtime pipeline first.")
-
-    df = pd.read_csv(RUNTIME_DATA)
-
-    return df
+RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 # ------------------------------------------------------------
-# PREPARE FEATURES
+# DATA LOADING
 # ------------------------------------------------------------
 
-def prepare_features(df):
+def load_runtime_data() -> pd.DataFrame:
+    """Load validated runtime data produced by the runtime pipeline."""
 
-    df["exploited_flag"] = df["exploitation"].apply(
-        lambda x: 1 if "Exploited:Yes" in str(x) else 0
+    if not RUNTIME_DATA_PATH.exists():
+        raise RuntimeError("Run the runtime pipeline first.")
+
+    return pd.read_csv(RUNTIME_DATA_PATH)
+
+
+# ------------------------------------------------------------
+# FEATURE PREPARATION
+# ------------------------------------------------------------
+
+def prepare_features(runtime_data: pd.DataFrame) -> pd.DataFrame:
+    """Prepare model input features from validated runtime data."""
+
+    features = runtime_data.copy()
+
+    features["exploited_flag"] = features["exploitation"].apply(
+        lambda value: 1 if "Exploited:Yes" in str(value) else 0
     )
 
-    drop_cols = [
+    drop_columns = [
         "kb_id",
         "cve_id",
         "month",
         "published_date",
-        "exploitation"
+        "exploitation",
     ]
 
-    X = df.drop(columns=drop_cols)
-
-    return X
+    return features.drop(columns=drop_columns)
 
 
 # ------------------------------------------------------------
-# PREDICT
+# MODEL INFERENCE
 # ------------------------------------------------------------
 
-def predict(df):
+def predict_priorities(runtime_data: pd.DataFrame) -> pd.DataFrame:
+    """Apply trained models and attach predictions to runtime data."""
 
-    X = prepare_features(df)
+    predictions = runtime_data.copy()
+    features = prepare_features(predictions)
 
-    # load models
-    reg_model = joblib.load(REGRESSION_MODEL)
-    clf_model = joblib.load(CLASSIFICATION_MODEL)
-    cluster_model = joblib.load(CLUSTERING_MODEL)
+    regression_model = joblib.load(REGRESSION_MODEL_PATH)
+    regression_preprocessor = joblib.load(REGRESSION_PREPROCESSOR_PATH)
 
-    # load preprocessors
-    reg_preprocessor = joblib.load(REGRESSION_PREPROCESSOR)
-    clf_preprocessor = joblib.load(CLASSIFICATION_PREPROCESSOR)
-    cluster_preprocessor = joblib.load(CLUSTERING_PREPROCESSOR)
+    classification_model = joblib.load(CLASSIFICATION_MODEL_PATH)
+    classification_preprocessor = joblib.load(CLASSIFICATION_PREPROCESSOR_PATH)
 
-    # preprocess inputs
-    X_reg = reg_preprocessor.transform(X)
-    X_clf = clf_preprocessor.transform(X)
-    X_cluster = cluster_preprocessor.transform(X)
+    clustering_model = joblib.load(CLUSTERING_MODEL_PATH)
+    clustering_preprocessor = joblib.load(CLUSTERING_PREPROCESSOR_PATH)
 
-    # predictions
-    reg_preds = reg_model.predict(X_reg)
-    clf_preds = clf_model.predict(X_clf)
-    clusters = cluster_model.predict(X_cluster)
+    regression_features = regression_preprocessor.transform(features)
+    classification_features = classification_preprocessor.transform(features)
+    clustering_features = clustering_preprocessor.transform(features)
 
-    df["regression"] = reg_preds
-    df["classification"] = clf_preds
-    df["cluster"] = clusters
+    predictions["regression"] = regression_model.predict(regression_features)
+    predictions["classification"] = classification_model.predict(classification_features)
+    predictions["cluster"] = clustering_model.predict(clustering_features)
 
-    return df
+    return predictions
 
 
 # ------------------------------------------------------------
-# ORDER KBs
+# KB RANKING
 # ------------------------------------------------------------
 
-def get_kb_order(df):
+def get_kb_order(predictions: pd.DataFrame) -> pd.Index:
+    """Return KB IDs ordered by highest predicted risk."""
 
     return (
-        df.groupby("kb_id")["regression"]
+        predictions.groupby("kb_id")["regression"]
         .max()
         .sort_values(ascending=False)
         .index
@@ -118,25 +124,25 @@ def get_kb_order(df):
 
 
 # ------------------------------------------------------------
-# PRINT PRIORITY
+# CONSOLE OUTPUT
 # ------------------------------------------------------------
 
-def print_kb_breakdown(df):
+def print_kb_breakdown(predictions: pd.DataFrame) -> None:
+    """Print CVE-level prediction details grouped by KB."""
 
-    df_sorted = df.sort_values("regression", ascending=False)
-    kb_order = get_kb_order(df_sorted)
+    sorted_predictions = predictions.sort_values("regression", ascending=False)
+    kb_order = get_kb_order(sorted_predictions)
 
-    for kb in kb_order:
-
-        kb_rows = df_sorted[df_sorted["kb_id"] == kb]
+    for kb_id in kb_order:
+        kb_rows = sorted_predictions[sorted_predictions["kb_id"] == kb_id]
 
         max_risk = kb_rows["regression"].max()
         cluster = kb_rows["cluster"].mode()[0]
-        label = kb_rows["classification"].mode()[0]
+        classification = kb_rows["classification"].mode()[0]
 
         print(
-            f"{kb} | Cluster: {cluster} | "
-            f"Classification: {label} | "
+            f"{kb_id} | Cluster: {cluster} | "
+            f"Classification: {classification} | "
             f"Max Risk: {max_risk:.2f} | "
             f"CVEs: {len(kb_rows)}"
         )
@@ -152,94 +158,96 @@ def print_kb_breakdown(df):
         print()
 
 
-# ------------------------------------------------------------
-# PATCH RECOMMENDATION
-# ------------------------------------------------------------
-
-def print_patch_recommendation(df):
+def print_patch_recommendation(predictions: pd.DataFrame) -> None:
+    """Print KB-level remediation order based on maximum predicted risk."""
 
     print("\n=== Patch Remediation Recommendation ===\n")
 
     kb_scores = (
-        df.groupby("kb_id")["regression"]
+        predictions.groupby("kb_id")["regression"]
         .max()
         .sort_values(ascending=False)
     )
 
-    for i, (kb, score) in enumerate(kb_scores.items(), start=1):
+    for index, (kb_id, score) in enumerate(kb_scores.items(), start=1):
+        kb_rows = predictions[predictions["kb_id"] == kb_id]
 
-        rows = df[df["kb_id"] == kb]
-
-        cluster = rows["cluster"].mode()[0]
-        label = rows["classification"].mode()[0]
+        cluster = kb_rows["cluster"].mode()[0]
+        classification = kb_rows["classification"].mode()[0]
 
         print(
-            f"{i}. {kb} | Cluster: {cluster} | "
-            f"Classification: {label} | "
+            f"{index}. {kb_id} | Cluster: {cluster} | "
+            f"Classification: {classification} | "
             f"Risk: {score:.2f} | "
-            f"CVEs: {len(rows)}"
+            f"CVEs: {len(kb_rows)}"
         )
 
     print()
 
 
 # ------------------------------------------------------------
-# SAVE RESULTS
+# RESULT EXPORT
 # ------------------------------------------------------------
 
-def save_results(df):
+def build_results(predictions: pd.DataFrame) -> list[dict[str, Any]]:
+    """Build JSON-serialisable KB ranking results."""
 
-    output = []
+    output: list[dict[str, Any]] = []
 
-    for kb, rows in df.groupby("kb_id"):
-
+    for kb_id, kb_rows in predictions.groupby("kb_id"):
         entry = {
-            "kb_id": kb,
-            "max_risk": float(rows["regression"].max()),
-            "classification": rows["classification"].mode()[0],
-            "cluster": int(rows["cluster"].mode()[0]),
-            "cves": []
+            "kb_id": kb_id,
+            "max_risk": float(kb_rows["regression"].max()),
+            "classification": kb_rows["classification"].mode()[0],
+            "cluster": int(kb_rows["cluster"].mode()[0]),
+            "cves": [],
         }
 
-        for _, r in rows.iterrows():
-            entry["cves"].append({
-                "cve_id": r["cve_id"],
-                "risk": float(r["regression"]),
-                "classification": r["classification"],
-                "cluster": int(r["cluster"])
-            })
+        for _, row in kb_rows.iterrows():
+            entry["cves"].append(
+                {
+                    "cve_id": row["cve_id"],
+                    "risk": float(row["regression"]),
+                    "classification": row["classification"],
+                    "cluster": int(row["cluster"]),
+                }
+            )
 
         output.append(entry)
 
-    output = sorted(output, key=lambda x: x["max_risk"], reverse=True)
+    return sorted(output, key=lambda item: item["max_risk"], reverse=True)
 
-    with open(RESULTS_PATH, "w") as f:
-        json.dump(output, f, indent=4)
+
+def save_results(predictions: pd.DataFrame) -> None:
+    """Save KB ranking results to the results directory."""
+
+    output = build_results(predictions)
+
+    with RESULTS_PATH.open("w", encoding="utf-8") as file:
+        json.dump(output, file, indent=4)
 
     print(f"[+] Results saved to {RESULTS_PATH}")
 
 
 # ------------------------------------------------------------
-# MAIN
+# MAIN WORKFLOW
 # ------------------------------------------------------------
 
-def main():
+def main() -> None:
+    print("\n=== WinShield+ Prioritisation ===")
 
-    print("\n=== WinShield AI Prioritisation ===")
+    runtime_data = load_runtime_data()
+    predictions = predict_priorities(runtime_data)
 
-    df = load_runtime_data()
-
-    df = predict(df)
-
-    print_kb_breakdown(df)
-    print_patch_recommendation(df)
-    save_results(df)
+    print_kb_breakdown(predictions)
+    print_patch_recommendation(predictions)
+    save_results(predictions)
 
     print("[+] Done.\n")
 
 
 # ------------------------------------------------------------
-# ENTRYPOINT
+# ENTRY POINT
 # ------------------------------------------------------------
 
 if __name__ == "__main__":
