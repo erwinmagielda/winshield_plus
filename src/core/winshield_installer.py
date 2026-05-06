@@ -1,103 +1,197 @@
 """
-WinShield Installer
+WinShield+ installer.
 
-Installs a selected Windows update package (.msu or .cab) from the downloads directory.
-Requires administrative privileges.
+Installs an operator-selected Windows update package from the downloads
+directory. Supports .msu packages through WUSA and .cab packages through DISM.
+
+Requires administrative privileges and does not restart the system automatically.
 """
 
 import ctypes
-import os
 import re
 import subprocess
-import sys
-from typing import List
+from pathlib import Path
 
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-ROOT_DIR = os.path.dirname(SCRIPT_DIR)
-DOWNLOADS_DIR = os.path.join(ROOT_DIR, "downloads")
+# ------------------------------------------------------------
+# PATHS
+# ------------------------------------------------------------
 
-os.makedirs(DOWNLOADS_DIR, exist_ok=True)
+SCRIPT_DIR = Path(__file__).resolve().parent
+ROOT_DIR = SCRIPT_DIR.parents[1]
 
+DOWNLOADS_DIR = ROOT_DIR / "downloads"
+DOWNLOADS_DIR.mkdir(parents=True, exist_ok=True)
+
+
+# ------------------------------------------------------------
+# PRIVILEGE CHECK
+# ------------------------------------------------------------
 
 def is_admin() -> bool:
     """Return True if the current process has administrative privileges."""
+
     try:
         return bool(ctypes.windll.shell32.IsUserAnAdmin())
     except Exception:
         return False
 
 
-def find_packages(path: str) -> List[str]:
-    """Return a sorted list of .msu and .cab packages in the given directory."""
-    packages: List[str] = []
+# ------------------------------------------------------------
+# PACKAGE DISCOVERY
+# ------------------------------------------------------------
 
-    for name in os.listdir(path):
-        full = os.path.join(path, name)
-        if not os.path.isfile(full):
+def find_packages(downloads_dir: Path) -> list[Path]:
+    """Return sorted .msu and .cab packages from the downloads directory."""
+
+    packages: list[Path] = []
+
+    for path in downloads_dir.iterdir():
+        if not path.is_file():
             continue
 
-        if os.path.splitext(name)[1].lower() in (".msu", ".cab"):
-            packages.append(full)
+        if path.suffix.lower() in (".msu", ".cab"):
+            packages.append(path)
 
-    return sorted(packages, key=lambda p: os.path.basename(p).lower())
+    return sorted(packages, key=lambda path: path.name.lower())
 
 
 def extract_kb_label(filename: str) -> str:
     """Extract a KB identifier from a filename if present."""
-    m = re.search(r"(KB\d{4,8})", filename, flags=re.IGNORECASE)
-    return m.group(1).upper() if m else filename
+
+    match = re.search(r"(KB\d{4,8})", filename, flags=re.IGNORECASE)
+
+    return match.group(1).upper() if match else filename
 
 
-def run_command(argv: List[str]) -> int:
-    """Execute a command and return its exit code."""
-    result = subprocess.run(argv, text=True)
+# ------------------------------------------------------------
+# COMMAND EXECUTION
+# ------------------------------------------------------------
+
+def run_command(command: list[str]) -> int:
+    """Execute an installer command and return its exit code."""
+
+    result = subprocess.run(
+        command,
+        text=True,
+        check=False,
+    )
+
     return int(result.returncode or 0)
 
 
+def install_package(package_path: Path) -> int:
+    """Install a selected .msu or .cab package using the matching Windows tool."""
+
+    extension = package_path.suffix.lower()
+
+    if extension == ".msu":
+        return run_command(
+            [
+                "wusa.exe",
+                str(package_path),
+                "/quiet",
+                "/norestart",
+            ]
+        )
+
+    if extension == ".cab":
+        return run_command(
+            [
+                "dism.exe",
+                "/online",
+                "/add-package",
+                f"/packagepath:{package_path}",
+                "/quiet",
+                "/norestart",
+            ]
+        )
+
+    raise RuntimeError(f"Unsupported package type: {package_path}")
+
+
+# ------------------------------------------------------------
+# OPERATOR INPUT
+# ------------------------------------------------------------
+
+def safe_input(prompt: str) -> str:
+    """Read operator input without raising EOF errors."""
+
+    try:
+        return input(prompt)
+    except EOFError:
+        return ""
+
+
+def select_package(packages: list[Path]) -> Path | None:
+    """Ask the operator to select a package from the available downloads."""
+
+    print()
+
+    for index, package_path in enumerate(packages, start=1):
+        print(f"{index}) {package_path.name}")
+
+    raw_selection = safe_input("Select package number: ").strip()
+
+    if not raw_selection.isdigit():
+        print("[!] Invalid selection")
+        return None
+
+    selected_index = int(raw_selection)
+
+    if selected_index < 1 or selected_index > len(packages):
+        print("[!] Selection out of range")
+        return None
+
+    return packages[selected_index - 1]
+
+
+# ------------------------------------------------------------
+# MAIN WORKFLOW
+# ------------------------------------------------------------
+
 def main() -> int:
-    print("[*] Running WinShield installer")
+    print("[*] Running WinShield+ installer")
 
     if not is_admin():
         print("[!] Administrator privileges are required")
         return 1
 
     packages = find_packages(DOWNLOADS_DIR)
+
     if not packages:
         print("[+] No update packages found")
         return 0
 
-    print()
-    for i, path in enumerate(packages, start=1):
-        print(f"{i}) {os.path.basename(path)}")
+    selected_package = select_package(packages)
 
-    raw = input("Select package number: ").strip()
-    if not raw.isdigit():
-        print("[!] Invalid selection")
+    if not selected_package:
         return 1
 
-    idx = int(raw)
-    if idx < 1 or idx > len(packages):
-        print("[!] Selection out of range")
-        return 1
-
-    chosen = packages[idx - 1]
-    name = os.path.basename(chosen)
-    kb_label = extract_kb_label(name)
+    kb_label = extract_kb_label(selected_package.name)
 
     print(f"[*] Installing {kb_label}")
+    print("[*] Automatic restart is disabled")
 
-    ext = os.path.splitext(chosen)[1].lower()
-    if ext == ".msu":
-        code = run_command(["wusa.exe", chosen, "/quiet", "/norestart"])
-    else:
-        code = run_command(
-            ["dism.exe", "/online", "/add-package", f"/packagepath:{chosen}", "/quiet", "/norestart"]
-        )
+    exit_code = install_package(selected_package)
 
-    print(f"[+] Installer exit code: {code}")
-    return 0 if code in (0, 3010) else 1
+    print(f"[+] Installer exit code: {exit_code}")
 
+    if exit_code == 3010:
+        print("[!] Installation completed and requires restart")
+        return 0
+
+    if exit_code == 0:
+        print("[+] Installation completed")
+        return 0
+
+    print("[!] Installation failed or was rejected by Windows servicing")
+    return 1
+
+
+# ------------------------------------------------------------
+# ENTRY POINT
+# ------------------------------------------------------------
 
 if __name__ == "__main__":
-    sys.exit(main())
+    raise SystemExit(main())

@@ -1,38 +1,52 @@
 """
-WinShield Downloader
+WinShield+ downloader.
 
-Resolves and downloads a selected missing Windows update package
-from the Microsoft Update Catalog based on baseline constraints.
+Resolves and downloads an operator-selected missing Windows update package
+from the Microsoft Update Catalog using baseline constraints from the latest
+runtime scan.
+
+This module does not install updates. It only downloads a selected package.
 """
 
 import json
-import os
 import re
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from pathlib import Path
+from typing import Any
 
 import requests
 from bs4 import BeautifulSoup
 
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-ROOT_DIR = os.path.dirname(SCRIPT_DIR)
+# ------------------------------------------------------------
+# PATHS
+# ------------------------------------------------------------
 
-RESULTS_DIR = os.path.join(ROOT_DIR, "results")
-DOWNLOADS_DIR = os.path.join(ROOT_DIR, "downloads")
+SCRIPT_DIR = Path(__file__).resolve().parent
+ROOT_DIR = SCRIPT_DIR.parents[1]
 
-SCAN_RESULT_PATH = os.path.join(RESULTS_DIR, "winshield_scan_result.json")
+RUNTIME_DIR = ROOT_DIR / "data" / "runtime"
+DOWNLOADS_DIR = ROOT_DIR / "downloads"
 
-os.makedirs(RESULTS_DIR, exist_ok=True)
-os.makedirs(DOWNLOADS_DIR, exist_ok=True)
+DOWNLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
 
-CATALOG_BASE = "https://www.catalog.update.microsoft.com"
-SEARCH_URL = f"{CATALOG_BASE}/Search.aspx"
-DOWNLOAD_DIALOG_URL = f"{CATALOG_BASE}/DownloadDialog.aspx"
+# ------------------------------------------------------------
+# CATALOG SETTINGS
+# ------------------------------------------------------------
+
+CATALOG_BASE_URL = "https://www.catalog.update.microsoft.com"
+SEARCH_URL = f"{CATALOG_BASE_URL}/Search.aspx"
+DOWNLOAD_DIALOG_URL = f"{CATALOG_BASE_URL}/DownloadDialog.aspx"
 
 DEFAULT_TIMEOUT = 30
+MIN_CONFIDENCE_SCORE = 90
+REJECT_SCORE = -10_000
 
+
+# ------------------------------------------------------------
+# DATA MODELS
+# ------------------------------------------------------------
 
 @dataclass(frozen=True)
 class MissingKbItem:
@@ -59,29 +73,58 @@ class BaselineConstraints:
     catalog_arch: str
 
 
-def load_scan_result(path: str) -> dict:
+# ------------------------------------------------------------
+# DATA LOADING
+# ------------------------------------------------------------
+
+def find_latest_runtime_scan() -> Path:
+    """Return the newest runtime scan exported by winshield_scanner.py."""
+
+    scan_files = sorted(
+        RUNTIME_DIR.glob("scan_*.json"),
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
+
+    if not scan_files:
+        raise RuntimeError("No runtime scans found. Run winshield_scanner.py first.")
+
+    return scan_files[0]
+
+
+def load_scan_result(path: Path) -> dict[str, Any]:
     """Load scanner output JSON from disk."""
-    if not os.path.isfile(path):
-        raise RuntimeError("Scan result not found. Run winshield_scanner.py first.")
 
-    with open(path, "r", encoding="utf-8") as handle:
-        return json.load(handle)
+    if not path.is_file():
+        raise RuntimeError(f"Scan result not found: {path}")
 
+    with path.open("r", encoding="utf-8") as file:
+        return json.load(file)
+
+
+# ------------------------------------------------------------
+# OPERATOR INPUT
+# ------------------------------------------------------------
 
 def safe_input(prompt: str) -> str:
     """Read operator input without raising EOF errors."""
+
     try:
         return input(prompt)
     except EOFError:
         return ""
 
 
-def build_constraints(baseline: dict) -> BaselineConstraints:
-    """Derive catalog matching constraints from baseline metadata."""
+# ------------------------------------------------------------
+# BASELINE CONSTRAINTS
+# ------------------------------------------------------------
+
+def build_constraints(baseline: dict[str, Any]) -> BaselineConstraints:
+    """Derive Microsoft Update Catalog matching constraints from baseline metadata."""
 
     os_name = str(baseline.get("OsName") or "").lower()
     display_version = str(baseline.get("DisplayVersion") or "").strip()
-    arch = str(baseline.get("Architecture") or "").lower()
+    architecture = str(baseline.get("Architecture") or "").lower()
     build = str(baseline.get("Build") or "")
 
     build_major = build.split(".", 1)[0] if build else ""
@@ -93,11 +136,11 @@ def build_constraints(baseline: dict) -> BaselineConstraints:
     else:
         windows_gen = ""
 
-    if arch in ("x64", "amd64"):
+    if architecture in ("x64", "amd64"):
         catalog_arch = "x64"
-    elif "arm64" in arch:
+    elif "arm64" in architecture:
         catalog_arch = "arm64"
-    elif arch in ("x86", "32-bit"):
+    elif architecture in ("x86", "32-bit"):
         catalog_arch = "x86"
     else:
         catalog_arch = "x64"
@@ -110,168 +153,231 @@ def build_constraints(baseline: dict) -> BaselineConstraints:
     )
 
 
+# ------------------------------------------------------------
+# HTTP SESSION
+# ------------------------------------------------------------
+
 def build_session() -> requests.Session:
-    """Create an HTTP session with stable headers."""
-    s = requests.Session()
-    s.headers.update(
+    """Create an HTTP session with stable request headers."""
+
+    session = requests.Session()
+    session.headers.update(
         {
-            "User-Agent": "winshield-downloader",
+            "User-Agent": "winshield-plus-downloader",
             "Accept-Language": "en-GB,en;q=0.9",
         }
     )
-    return s
+
+    return session
 
 
-def fetch_text(session: requests.Session, url: str, params: dict | None = None) -> str:
-    """Fetch HTML content and raise on HTTP errors."""
-    r = session.get(url, params=params, timeout=DEFAULT_TIMEOUT)
-    r.raise_for_status()
-    return r.text
+def fetch_text(
+    session: requests.Session,
+    url: str,
+    params: dict[str, Any] | None = None,
+) -> str:
+    """Fetch text content and raise on HTTP errors."""
+
+    response = session.get(url, params=params, timeout=DEFAULT_TIMEOUT)
+    response.raise_for_status()
+
+    return response.text
 
 
-def build_missing_list(scan_result: dict) -> List[MissingKbItem]:
+# ------------------------------------------------------------
+# MISSING KB SELECTION
+# ------------------------------------------------------------
+
+def build_missing_list(scan_result: dict[str, Any]) -> list[MissingKbItem]:
     """Build a display list of missing KBs with update type labels."""
 
-    missing_kbs: List[str] = scan_result.get("MissingKbs") or []
-    kb_entries: List[dict] = scan_result.get("KbEntries") or []
+    missing_kbs = scan_result.get("MissingKbs") or []
+    kb_entries = scan_result.get("KbEntries") or []
 
-    kb_index: Dict[str, dict] = {
-        str(e.get("KB")).upper(): e for e in kb_entries if e.get("KB")
+    kb_index = {
+        str(entry.get("KB")).upper(): entry
+        for entry in kb_entries
+        if entry.get("KB")
     }
 
-    out: List[MissingKbItem] = []
+    missing_items: list[MissingKbItem] = []
+
     for kb in missing_kbs:
         kb_id = str(kb).strip().upper()
         if not kb_id:
             continue
 
         update_type = str(kb_index.get(kb_id, {}).get("UpdateType") or "Unknown")
-        out.append(MissingKbItem(kb_id=kb_id, update_type=update_type))
+        missing_items.append(
+            MissingKbItem(
+                kb_id=kb_id,
+                update_type=update_type,
+            )
+        )
 
-    return out
+    return missing_items
 
 
-def parse_search_candidates(html: str) -> List[CatalogCandidate]:
+# ------------------------------------------------------------
+# CATALOG SEARCH PARSING
+# ------------------------------------------------------------
+
+def parse_search_candidates(html: str) -> list[CatalogCandidate]:
     """Parse Microsoft Update Catalog search results into structured candidates."""
 
     soup = BeautifulSoup(html, "html.parser")
     table = soup.find("table", id="ctl00_catalogBody_updateMatches")
+
     if not table:
         return []
 
-    candidates: List[CatalogCandidate] = []
+    candidates: list[CatalogCandidate] = []
 
-    for tr in table.find_all("tr"):
-        tr_id = (tr.get("id") or "").strip()
-        if "_R" not in tr_id:
+    for table_row in table.find_all("tr"):
+        row_id = (table_row.get("id") or "").strip()
+
+        if "_R" not in row_id:
             continue
 
-        update_id = tr_id.split("_R", 1)[0]
+        update_id = row_id.split("_R", 1)[0]
         if not re.fullmatch(r"[0-9a-fA-F-]{36}", update_id):
             continue
 
-        tds = tr.find_all("td")
-        if len(tds) < 8:
+        cells = table_row.find_all("td")
+        if len(cells) < 8:
             continue
 
         candidates.append(
             CatalogCandidate(
                 update_id=update_id,
-                title=tds[1].get_text(" ", strip=True),
-                products=tds[2].get_text(" ", strip=True),
-                classification=tds[3].get_text(" ", strip=True),
-                last_updated=tds[4].get_text(" ", strip=True),
-                version=tds[5].get_text(" ", strip=True),
-                size=tds[6].get_text(" ", strip=True),
+                title=cells[1].get_text(" ", strip=True),
+                products=cells[2].get_text(" ", strip=True),
+                classification=cells[3].get_text(" ", strip=True),
+                last_updated=cells[4].get_text(" ", strip=True),
+                version=cells[5].get_text(" ", strip=True),
+                size=cells[6].get_text(" ", strip=True),
             )
         )
 
     return candidates
 
 
-def score_candidate(candidate: CatalogCandidate, kb_id: str, c: BaselineConstraints) -> int:
+# ------------------------------------------------------------
+# CANDIDATE SCORING
+# ------------------------------------------------------------
+
+def score_candidate(
+    candidate: CatalogCandidate,
+    kb_id: str,
+    constraints: BaselineConstraints,
+) -> int:
     """Score a catalog candidate against baseline constraints."""
 
     title = candidate.title.lower()
     score = 0
 
     if kb_id.lower() not in title:
-        return -10_000
+        return REJECT_SCORE
+
     score += 50
 
-    if c.windows_gen:
-        if c.windows_gen in title:
+    if constraints.windows_gen:
+        if constraints.windows_gen in title:
             score += 40
-        if c.windows_gen == "windows 10" and "windows 11" in title:
-            return -10_000
-        if c.windows_gen == "windows 11" and "windows 10" in title:
-            return -10_000
 
-    if c.windows_gen.startswith("windows") and "server" in title:
-        return -10_000
+        if constraints.windows_gen == "windows 10" and "windows 11" in title:
+            return REJECT_SCORE
 
-    if c.catalog_arch == "x64":
-        if any(x in title for x in ("arm64-based", "x86-based", "32-bit")):
-            return -10_000
+        if constraints.windows_gen == "windows 11" and "windows 10" in title:
+            return REJECT_SCORE
+
+    if constraints.windows_gen.startswith("windows") and "server" in title:
+        return REJECT_SCORE
+
+    if constraints.catalog_arch == "x64":
+        if any(token in title for token in ("arm64-based", "x86-based", "32-bit")):
+            return REJECT_SCORE
+
         if "x64-based" in title:
             score += 25
 
-    elif c.catalog_arch == "arm64":
-        if any(x in title for x in ("x64-based", "x86-based", "32-bit")):
-            return -10_000
+    elif constraints.catalog_arch == "arm64":
+        if any(token in title for token in ("x64-based", "x86-based", "32-bit")):
+            return REJECT_SCORE
+
         if "arm64-based" in title:
             score += 25
 
-    elif c.catalog_arch == "x86":
-        if any(x in title for x in ("x64-based", "arm64-based")):
-            return -10_000
+    elif constraints.catalog_arch == "x86":
+        if any(token in title for token in ("x64-based", "arm64-based")):
+            return REJECT_SCORE
+
         if "x86-based" in title or "32-bit" in title:
             score += 25
 
-    dv = c.display_version.lower()
-    if dv:
-        if dv in title:
+    display_version = constraints.display_version.lower()
+    if display_version:
+        if display_version in title:
             score += 25
-        if re.search(r"\b\d{2}h[12]\b", title) and dv not in title:
+
+        if re.search(r"\b\d{2}h[12]\b", title) and display_version not in title:
             score -= 15
 
-    if c.build_major:
-        m = re.search(r"\(\s*(\d{5})\.", title)
-        if m:
-            score += 10 if m.group(1) == c.build_major else -5
+    if constraints.build_major:
+        build_match = re.search(r"\(\s*(\d{5})\.", title)
+
+        if build_match:
+            score += 10 if build_match.group(1) == constraints.build_major else -5
 
     return score
 
 
 def choose_best_candidate(
-    candidates: List[CatalogCandidate],
+    candidates: list[CatalogCandidate],
     kb_id: str,
     constraints: BaselineConstraints,
-) -> Tuple[Optional[CatalogCandidate], Optional[str]]:
-    """Select the highest confidence candidate or return a reason for failure."""
+) -> tuple[CatalogCandidate | None, str | None]:
+    """Select the highest-confidence candidate or return a rejection reason."""
 
-    scored = [(score_candidate(c, kb_id, constraints), c) for c in candidates]
-    scored = [(s, c) for s, c in scored if s >= 0]
+    scored_candidates = [
+        (score_candidate(candidate, kb_id, constraints), candidate)
+        for candidate in candidates
+    ]
 
-    if not scored:
+    accepted_candidates = [
+        (score, candidate)
+        for score, candidate in scored_candidates
+        if score >= 0
+    ]
+
+    if not accepted_candidates:
         return None, "No candidate matched baseline constraints."
 
-    scored.sort(key=lambda x: x[0], reverse=True)
-    best_score, best = scored[0]
+    accepted_candidates.sort(key=lambda item: item[0], reverse=True)
+    best_score, best_candidate = accepted_candidates[0]
 
-    if best_score < 90:
+    if best_score < MIN_CONFIDENCE_SCORE:
         return None, f"Ambiguous match below confidence threshold ({best_score})."
 
-    return best, None
+    return best_candidate, None
 
 
-def build_dialog_params(update_id: str) -> dict:
-    """Build parameters for the Update Catalog download dialog."""
-    payload = f'[{{"size":0,"languages":"all","uidInfo":"{update_id}","updateID":"{update_id}"}}]'
+# ------------------------------------------------------------
+# DOWNLOAD URL RESOLUTION
+# ------------------------------------------------------------
+
+def build_dialog_params(update_id: str) -> dict[str, str]:
+    """Build parameters for the Microsoft Update Catalog download dialog."""
+
+    payload = (
+        f'[{{"size":0,"languages":"all",'
+        f'"uidInfo":"{update_id}","updateID":"{update_id}"}}]'
+    )
+
     return {"updateIDs": payload}
 
 
-def extract_download_urls(html: str) -> List[str]:
+def extract_download_urls(html: str) -> list[str]:
     """Extract direct .msu or .cab URLs from download dialog HTML."""
 
     urls = re.findall(
@@ -280,37 +386,53 @@ def extract_download_urls(html: str) -> List[str]:
         flags=re.IGNORECASE,
     )
 
-    seen: set[str] = set()
-    out: List[str] = []
+    seen_urls: set[str] = set()
+    output: list[str] = []
 
-    for u in urls:
-        if u not in seen:
-            seen.add(u)
-            out.append(u)
+    for url in urls:
+        if url not in seen_urls:
+            seen_urls.add(url)
+            output.append(url)
 
-    return out
+    return output
 
 
-def download_file(session: requests.Session, url: str, out_dir: str) -> str:
+# ------------------------------------------------------------
+# FILE DOWNLOAD
+# ------------------------------------------------------------
+
+def download_file(
+    session: requests.Session,
+    url: str,
+    output_dir: Path,
+) -> Path:
     """Download a resolved update package to disk."""
 
     filename = url.split("/")[-1].split("?", 1)[0]
-    out_path = os.path.join(out_dir, filename)
+    output_path = output_dir / filename
 
-    with session.get(url, stream=True, timeout=DEFAULT_TIMEOUT) as r:
-        r.raise_for_status()
-        with open(out_path, "wb") as h:
-            for chunk in r.iter_content(chunk_size=1024 * 256):
+    with session.get(url, stream=True, timeout=DEFAULT_TIMEOUT) as response:
+        response.raise_for_status()
+
+        with output_path.open("wb") as file:
+            for chunk in response.iter_content(chunk_size=1024 * 256):
                 if chunk:
-                    h.write(chunk)
+                    file.write(chunk)
 
-    return out_path
+    return output_path
 
+
+# ------------------------------------------------------------
+# MAIN WORKFLOW
+# ------------------------------------------------------------
 
 def main() -> int:
-    print("[*] Running WinShield downloader")
+    print("[*] Running WinShield+ downloader")
 
-    scan_result = load_scan_result(SCAN_RESULT_PATH)
+    scan_path = find_latest_runtime_scan()
+    print(f"[*] Using scan result: {scan_path}")
+
+    scan_result = load_scan_result(scan_path)
     constraints = build_constraints(scan_result.get("Baseline") or {})
 
     missing_items = build_missing_list(scan_result)
@@ -319,46 +441,64 @@ def main() -> int:
         return 0
 
     print("=== Missing KBs ===")
-    for i, item in enumerate(missing_items, start=1):
-        print(f"{i}) {item.kb_id} [{item.update_type}]")
+    for index, item in enumerate(missing_items, start=1):
+        print(f"{index}) {item.kb_id} [{item.update_type}]")
     print()
 
-    raw = safe_input("Select KB: ").strip()
-    if not raw.isdigit():
+    raw_selection = safe_input("Select KB: ").strip()
+    if not raw_selection.isdigit():
         print("[!] Invalid selection")
         return 1
 
-    idx = int(raw)
-    if idx < 1 or idx > len(missing_items):
+    selected_index = int(raw_selection)
+    if selected_index < 1 or selected_index > len(missing_items):
         print("[!] Selection out of range")
         return 1
 
-    kb_id = missing_items[idx - 1].kb_id
+    kb_id = missing_items[selected_index - 1].kb_id
     session = build_session()
 
     print(f"[*] Searching catalog for {kb_id}")
     html = fetch_text(session, SEARCH_URL, params={"q": kb_id})
 
     candidates = parse_search_candidates(html)
-    best, reason = choose_best_candidate(candidates, kb_id, constraints)
+    best_candidate, rejection_reason = choose_best_candidate(
+        candidates=candidates,
+        kb_id=kb_id,
+        constraints=constraints,
+    )
 
-    if not best:
-        print(f"[!] {reason}")
+    if not best_candidate:
+        print(f"[!] {rejection_reason}")
         return 1
 
-    print(f"[+] Selected: {best.title}")
-    dialog_html = fetch_text(session, DOWNLOAD_DIALOG_URL, params=build_dialog_params(best.update_id))
-    urls = extract_download_urls(dialog_html)
+    print(f"[+] Selected: {best_candidate.title}")
 
-    if not urls:
+    dialog_html = fetch_text(
+        session,
+        DOWNLOAD_DIALOG_URL,
+        params=build_dialog_params(best_candidate.update_id),
+    )
+
+    download_urls = extract_download_urls(dialog_html)
+    if not download_urls:
         print("[!] No download URL found")
         return 1
 
-    out_path = download_file(session, urls[0], DOWNLOADS_DIR)
-    print(f"[+] Downloaded to {out_path}")
+    output_path = download_file(
+        session=session,
+        url=download_urls[0],
+        output_dir=DOWNLOADS_DIR,
+    )
+
+    print(f"[+] Downloaded to {output_path}")
 
     return 0
 
+
+# ------------------------------------------------------------
+# ENTRY POINT
+# ------------------------------------------------------------
 
 if __name__ == "__main__":
     raise SystemExit(main())
