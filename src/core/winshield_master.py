@@ -139,7 +139,7 @@ def print_menu() -> None:
     print("2) Rank Risk")
     print("3) Download Update")
     print("4) Install Update")
-    print("5) Clean Generated Artefacts")
+    print("5) Clean Artefacts")
     print("6) Exit")
     print()
 
