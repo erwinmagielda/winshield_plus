@@ -3,7 +3,8 @@ WinShield+ data pipeline.
 
 Builds training and runtime datasets from WinShield+ scan JSON files.
 The pipeline flattens KB/CVE/month relationships, enriches CVEs with MSRC
-metadata, optionally labels training data, and validates model-ready rows.
+metadata, optionally labels training data, validates model-ready rows, and
+exports a pipeline summary to results/.
 """
 
 import argparse
@@ -26,11 +27,13 @@ DATA_DIR = BASE_DIR / "data"
 SCANS_DIR = DATA_DIR / "scans"
 RUNTIME_DIR = DATA_DIR / "runtime"
 DATASET_DIR = DATA_DIR / "dataset"
+RESULTS_DIR = BASE_DIR / "results"
 
 POWERSHELL_SCRIPT = BASE_DIR / "src" / "powershell" / "winshield_metadata.ps1"
 
 RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
 DATASET_DIR.mkdir(parents=True, exist_ok=True)
+RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 # ------------------------------------------------------------
@@ -52,6 +55,35 @@ def parse_args() -> argparse.Namespace:
     )
 
     return parser.parse_args()
+
+
+# ------------------------------------------------------------
+# SUMMARY HELPERS
+# ------------------------------------------------------------
+
+def relative_path(path: Path) -> str:
+    """Return a project-relative path for summary output."""
+
+    return str(path.relative_to(BASE_DIR))
+
+
+def utc_timestamp() -> str:
+    """Return a compact UTC timestamp."""
+
+    return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def save_pipeline_summary(mode: str, summary: dict[str, Any]) -> Path:
+    """Save pipeline summary JSON to the results directory."""
+
+    output_path = RESULTS_DIR / f"{mode}_pipeline_summary.json"
+
+    with output_path.open("w", encoding="utf-8") as file:
+        json.dump(summary, file, indent=2)
+
+    print(f"[+] Pipeline summary saved to {output_path}")
+
+    return output_path
 
 
 # ------------------------------------------------------------
@@ -88,15 +120,17 @@ def find_training_scans() -> list[Path]:
 # STEP 1: FLATTEN
 # ------------------------------------------------------------
 
-def flatten_scans(mode: str) -> Path:
+def flatten_scans(mode: str) -> tuple[Path, dict[str, Any]]:
     """Flatten scan JSON files into KB/CVE/month rows."""
 
     if mode == "training":
         scan_files = find_training_scans()
         output_path = DATASET_DIR / "flattened_dataset.csv"
+        source_directory = SCANS_DIR
     else:
         scan_files = [find_latest_runtime_scan()]
         output_path = RUNTIME_DIR / "flattened_runtime.csv"
+        source_directory = RUNTIME_DIR
 
     rows: list[dict[str, Any]] = []
 
@@ -125,10 +159,21 @@ def flatten_scans(mode: str) -> Path:
     flattened_data = pd.DataFrame(rows)
     flattened_data.to_csv(output_path, index=False)
 
-    print(f"[+] Flatten saved to {output_path}")
-    print(f"[i] Flatten rows: {len(flattened_data)}")
+    summary = {
+        "scan_files": len(scan_files),
+        "source_directory": relative_path(source_directory),
+        "source_files": [relative_path(path) for path in scan_files],
+        "rows_created": int(len(flattened_data)),
+        "unique_kbs": int(flattened_data["kb_id"].nunique()) if not flattened_data.empty else 0,
+        "unique_cves": int(flattened_data["cve_id"].nunique()) if not flattened_data.empty else 0,
+        "unique_months": int(flattened_data["month"].nunique()) if not flattened_data.empty else 0,
+        "output": relative_path(output_path),
+    }
 
-    return output_path
+    print(f"[+] Flatten saved to {output_path}")
+    print(f"[i] Flatten rows: {summary['rows_created']}")
+
+    return output_path, summary
 
 
 # ------------------------------------------------------------
@@ -249,7 +294,7 @@ def calculate_patch_age_days(published_date: str | None, today: datetime) -> int
         return None
 
 
-def enrich_data(input_csv: Path) -> Path:
+def enrich_data(input_csv: Path) -> tuple[Path, dict[str, Any]]:
     """Enrich flattened rows with MSRC CVE metadata and parsed CVSS fields."""
 
     output_path = Path(str(input_csv).replace("flattened", "enriched"))
@@ -309,9 +354,19 @@ def enrich_data(input_csv: Path) -> Path:
     enriched_data = pd.DataFrame(enriched_rows)
     enriched_data.to_csv(output_path, index=False)
 
+    summary = {
+        "month_ids_requested": month_ids,
+        "metadata_cves_returned": int(len(metadata)),
+        "requested_cves": int(len(requested_cves)),
+        "matched_cves": int(len(matched_cves)),
+        "missing_cves": int(len(missing_cves)),
+        "first_missing_cves": missing_cves[:10],
+        "output": relative_path(output_path),
+    }
+
     print(f"[+] Enrich saved to {output_path}")
 
-    return output_path
+    return output_path, summary
 
 
 # ------------------------------------------------------------
@@ -344,7 +399,7 @@ def compute_risk_label(row: pd.Series) -> tuple[float, str]:
     return round(score, 2), priority_label
 
 
-def label_training_data(input_csv: Path) -> Path:
+def label_training_data(input_csv: Path) -> tuple[Path, dict[str, Any]]:
     """Apply synthetic risk labels for supervised model training."""
 
     enriched_data = pd.read_csv(input_csv)
@@ -357,9 +412,20 @@ def label_training_data(input_csv: Path) -> Path:
     output_path = Path(str(input_csv).replace("enriched", "labelled"))
     enriched_data.to_csv(output_path, index=False)
 
+    label_distribution = {
+        str(label): int(count)
+        for label, count in enriched_data["priority_label"].value_counts().items()
+    }
+
+    summary = {
+        "rows_labelled": int(len(enriched_data)),
+        "label_distribution": label_distribution,
+        "output": relative_path(output_path),
+    }
+
     print(f"[+] Label saved to {output_path}")
 
-    return output_path
+    return output_path, summary
 
 
 # ------------------------------------------------------------
@@ -381,7 +447,7 @@ def ensure_required_columns(
     return validated_data
 
 
-def validate_data(input_csv: Path, mode: str) -> Path:
+def validate_data(input_csv: Path, mode: str) -> tuple[Path, dict[str, Any]]:
     """Validate pipeline rows and drop incomplete model inputs."""
 
     pipeline_data = pd.read_csv(input_csv)
@@ -411,6 +477,15 @@ def validate_data(input_csv: Path, mode: str) -> Path:
 
     pipeline_data.to_csv(output_path, index=False)
 
+    summary = {
+        "rows_before": int(before_count),
+        "rows_after": int(after_count),
+        "rows_dropped": int(dropped_count),
+        "required_columns": required_columns,
+        "drop_reason": "Rows missing cvss_score or attack_vector are removed.",
+        "output": relative_path(output_path),
+    }
+
     print(f"[+] Validate saved to {output_path}")
     print(f"[i] Validation rows before: {before_count}")
     print(f"[i] Validation rows after:  {after_count}")
@@ -419,7 +494,7 @@ def validate_data(input_csv: Path, mode: str) -> Path:
     if after_count == 0:
         print("[!] Warning: validation produced an empty dataset.")
 
-    return output_path
+    return output_path, summary
 
 
 # ------------------------------------------------------------
@@ -431,13 +506,32 @@ def run_pipeline(mode: str) -> Path:
 
     print(f"\n=== Data Pipeline ({mode}) ===\n")
 
-    output_path = flatten_scans(mode)
-    output_path = enrich_data(output_path)
+    summary: dict[str, Any] = {
+        "pipeline": "data_pipeline",
+        "mode": mode,
+        "timestamp_utc": utc_timestamp(),
+        "status": "running",
+    }
+
+    output_path, flatten_summary = flatten_scans(mode)
+    summary["flatten"] = flatten_summary
+
+    output_path, enrich_summary = enrich_data(output_path)
+    summary["enrich"] = enrich_summary
 
     if mode == "training":
-        output_path = label_training_data(output_path)
+        output_path, label_summary = label_training_data(output_path)
+        summary["label"] = label_summary
+    else:
+        summary["label"] = None
 
-    output_path = validate_data(output_path, mode)
+    output_path, validate_summary = validate_data(output_path, mode)
+    summary["validate"] = validate_summary
+
+    summary["final_output"] = relative_path(output_path)
+    summary["status"] = "completed"
+
+    save_pipeline_summary(mode, summary)
 
     print("\n=== Pipeline Complete ===\n")
 
