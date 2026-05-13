@@ -7,6 +7,7 @@ for downstream prioritisation.
 """
 
 import json
+import shutil
 import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
@@ -34,6 +35,21 @@ DATA_DIR = ROOT_DIR / "data"
 RUNTIME_DIR = DATA_DIR / "runtime"
 
 RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
+
+
+# ------------------------------------------------------------
+# RUNTIME CLEANUP
+# ------------------------------------------------------------
+
+def clear_runtime_directory() -> None:
+    """Clear existing runtime artefacts before starting a new scan."""
+
+    if RUNTIME_DIR.exists():
+        shutil.rmtree(RUNTIME_DIR)
+
+    RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
+    print(f"[*] Runtime directory cleared: {RUNTIME_DIR}")
+    print()
 
 
 # ------------------------------------------------------------
@@ -342,6 +358,8 @@ def export_runtime_scan(scan_result: dict[str, Any]) -> Path:
 # ------------------------------------------------------------
 
 def main() -> int:
+    clear_runtime_directory()
+
     print("[*] Collecting baseline...")
     baseline = run_powershell_script(BASELINE_SCRIPT)
 

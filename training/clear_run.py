@@ -1,5 +1,5 @@
 """
-WinShield+ run cleanup utility.
+WinShield+ artefact cleanup utility.
 
 Removes generated pipeline artefacts while preserving source training scans.
 Use this before rebuilding the project pipeline from data/scans/.
@@ -13,7 +13,7 @@ from pathlib import Path
 # PATHS
 # ------------------------------------------------------------
 
-ROOT_DIR = Path(__file__).resolve().parent
+ROOT_DIR = Path(__file__).resolve().parents[1]
 
 DATA_DIR = ROOT_DIR / "data"
 SCANS_DIR = DATA_DIR / "scans"
@@ -69,7 +69,9 @@ def confirm_cleanup() -> bool:
 # ------------------------------------------------------------
 
 def main() -> int:
-    print("\n=== WinShield+ Run Cleanup ===\n")
+    """Run the WinShield+ artefact cleanup workflow."""
+
+    print("\n=== WinShield+ Artefact Cleanup ===\n")
 
     if not SCANS_DIR.exists():
         print(f"[!] Warning: scans directory not found: {SCANS_DIR}")
@@ -86,7 +88,7 @@ def main() -> int:
 
     print()
     print("[+] Cleanup complete.")
-    print("[+] Source scans preserved.")
+    print("[+] Source training scans preserved.")
     print()
 
     return 0
