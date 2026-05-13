@@ -87,10 +87,16 @@ foreach ($monthId in $MonthIds) {
     }
 
     foreach ($productRow in $productRows) {
-
+        
         $cveList = @()
+
         if ($productRow.CVE) {
-            $cveList = @($productRow.CVE)
+            $cveList = @(
+                @($productRow.CVE) |
+                    ForEach-Object { ([string]$_).Trim().ToUpper() } |
+                    Where-Object { $_ -like "CVE-*" } |
+                    Sort-Object -Unique
+            )
         }
 
         $supersededKbs = @()
