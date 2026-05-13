@@ -1,290 +1,171 @@
 # WinShield+
 
-**Windows patch-state analysis, CVE enrichment, and ML-assisted vulnerability prioritisation.**
+**Windows patch risk prioritisation workflow using PowerShell, Python, MSRC CVE data, and machine learning.**
 
-WinShield+ is a portfolio security engineering project that turns local Windows update state into a risk-ranked patch remediation view. It collects host and update inventory data, correlates installed and missing KBs with Microsoft Security Response Center advisory data, enriches related CVEs, builds training and runtime datasets, trains machine learning models, and ranks missing updates by predicted risk.
+WinShield+ scans a Windows host, maps installed and missing KBs against Microsoft Security Response Centre advisory data, enriches related CVEs, and ranks patch remediation targets by predicted operational risk.
 
-The project is designed as a practical vulnerability management workflow rather than a simple patch checker. Its core question is:
+The project is designed as a controlled lab and portfolio workflow for Windows patch-state analysis, vulnerability triage, and remediation planning. It is not intended to replace enterprise patch management platforms. Its purpose is to show how raw Windows update data can be turned into structured, ranked security intelligence.
 
-> If a Windows system is missing updates, which missing KBs should be prioritised first based on the vulnerabilities they address?
+## Problem
 
----
+A missing Windows update is not just an inventory gap. Once a missing KB is mapped to the CVEs it addresses, then enriched with severity, exploitation, attack vector, and patch age data, it becomes a measurable part of the host's exposed attack surface.
 
-## Why It Matters
+Raw patch lists are difficult to interpret because KBs, CVEs, supersedence, advisory metadata, and installation state all need to be correlated before the risk is clear. WinShield+ addresses that problem by turning a clean Windows scan into a prioritised view of missing remediation targets.
 
-Traditional patch checks can tell an operator that updates are missing, but they do not always explain which missing update should be handled first. In a real support or SOC environment, this creates triage fatigue: multiple KBs, many CVEs, different severities, supersedence relationships, and unclear remediation order.
+## Solution
 
-WinShield+ addresses that problem by automating the flow from Windows inventory to vulnerability prioritisation:
+WinShield+ follows a structured workflow: collect patch state, correlate KBs with MSRC CVE data, enrich the CVEs, prepare model-ready data, train risk models, and rank missing updates. The result is a KB-level remediation order backed by CVE-level detail.
 
-```text
-Scan → Correlate → Enrich → Validate → Model → Prioritise
+| Layer | Purpose |
+|---|---|
+| PowerShell collectors | Collect Windows baseline, installed KB inventory, MSRC advisory data, and CVE metadata |
+| Python data pipeline | Flatten, enrich, label, and validate KB/CVE/month relationships |
+| Model pipeline | Train regression, classification, and clustering models |
+| Runtime prioritiser | Apply trained models to runtime scan data and rank KB remediation targets |
+| Downloader and installer | Support controlled package resolution, download, and installation workflow |
+
+## Demo Workflow
+
+The screenshots below show the intended operator flow from setup to scan and risk-ranked output.
+
+### Operator Menu
+
+![WinShield+ operator menu](assets/operator_menu.png)
+
+### Model Setup
+
+The Model Setup stage prepares training data and trains the model artefacts used by the runtime prioritiser. Detailed execution output is written to `results/model_setup_run.json` so the main terminal remains clean.
+
+![WinShield+ model setup](assets/model_setup.png)
+
+### System Scan
+
+The Scan System stage clears runtime artefacts, collects the host baseline, inventories installed KBs, queries MSRC CVRF data, and exports a fresh runtime scan.
+
+![WinShield+ system scan summary](assets/system_scan-1.png)
+
+The scanner also prints KB correlation details, including installed, superseded, and missing update states.
+
+![WinShield+ KB correlation](assets/system_scan-2.png)
+
+Missing KBs are exported into a runtime scan JSON file for downstream ranking.
+
+![WinShield+ missing KB export](assets/system_scan-3.png)
+
+### Risk Prioritisation
+
+The Rank Risk stage runs the runtime data pipeline, enriches CVEs, validates model-ready rows, and passes them into the prioritiser.
+
+![WinShield+ runtime data pipeline](assets/risk_prioritisation-1.png)
+
+The prioritiser applies trained models and produces a KB-level remediation table.
+
+![WinShield+ ranked remediation](assets/risk_prioritisation-2.png)
+
+CVE-level predictions remain visible under each KB so the ranking can be reviewed rather than treated as a black box.
+
+![WinShield+ CVE breakdown](assets/risk_prioritisation-3.png)
+
+## Operator Workflow
+
+WinShield+ is controlled through a single master runner.
+
+```bash
+python src/core/winshield_master.py
 ```
 
-The result is an operator-readable ranking of missing KBs, supported by CVE-level evidence and structured JSON outputs for traceability.
+| Menu option | Stage | Purpose |
+|---:|---|---|
+| 1 | Scan System | Collects a fresh runtime scan from the current Windows host |
+| 2 | Rank Risk | Builds runtime data and ranks KBs using trained models |
+| 3 | Download Update | Resolves and downloads an operator-selected missing update |
+| 4 | Install Update | Installs a selected `.msu` or `.cab` package without automatic restart |
+| 5 | Clear Artefacts | Removes generated artefacts while preserving source training scans |
+| 6 | Model Setup | Runs the training data pipeline and model pipeline |
+| 7 | Exit | Exits the operator menu |
 
----
-
-## Engineering Highlights
-
-- **Hybrid Windows/Python architecture**: PowerShell handles Windows inventory and MSRC collection, while Python handles orchestration, data processing, model training, and runtime inference.
-- **Windows patch-state correlation**: Installed KBs are collected through `Get-HotFix` and `Get-WindowsPackage`, then correlated with MSRC CVRF advisory data.
-- **Supersedence-aware logic**: The scanner treats superseded KBs as logically present when a newer installed KB replaces them.
-- **CVE enrichment pipeline**: Runtime and training records are enriched with CVSS score, CVSS vector fields, severity, publication date, exploitation status, and patch age.
-- **Training/runtime separation**: Historical scan data builds the training dataset, while current system scans flow through a separate runtime path.
-- **Three-model prioritisation layer**: Random Forest regression predicts risk score, Logistic Regression predicts priority label, and KMeans groups vulnerabilities into behavioural clusters.
-- **Operational traceability**: Each major stage writes structured JSON summaries that record inputs, row counts, matched CVEs, dropped rows, output paths, and model artefacts.
-- **Manual remediation support**: Optional downloader and installer helpers demonstrate the wider remediation lifecycle while keeping execution operator-controlled.
-
----
-
-## Demonstration Screenshots
-
-### Master menu
-
-The master runner provides a single operator entry point for scanning, ranking, downloading, installing, and cleaning generated artefacts.
-
-![WinShield+ master menu](assets/winshield_menu.png)
-
-### Runtime pipeline
-
-A runtime scan collects the local Windows baseline, installed KB inventory, MSRC data, missing KBs, and exports a runtime JSON scan for downstream analysis.
-
-![Runtime pipeline output](assets/runtime_pipeline.png)
-
-### KB correlation table
-
-The scanner correlates expected KBs, installed KBs, superseded KBs, MonthIds, and CVEs into an operator-readable table.
-
-![Correlation table](assets/correlation_table.png)
-
-### Training pipeline
-
-The training pipeline flattens authorised scan JSON files, enriches CVE metadata, labels training rows, validates required model fields, and writes pipeline summaries.
-
-![Training data pipeline](assets/data_pipeline.png)
-
-### Model training
-
-The model pipeline trains regression, classification, and clustering models, then writes model artefacts and a model pipeline summary.
-
-![Model training output](assets/model_training.png)
-
-### Update collection
-
-The scanner collects Windows baseline and inventory data, builds the MSRC MonthId range, queries MSRC, and reports expected versus missing KBs.
-
-![Update collection output](assets/update_collection.png)
-
-### Prioritisation output
-
-The prioritiser ranks missing KBs by the highest predicted CVE risk for each KB and prints CVE-level model outputs.
-
-![Prioritisation table](assets/prioritisation_table.png)
-
-### Remediation recommendation
-
-The final recommendation gives the operator a patch order based on predicted risk.
-
-![Prioritisation summary](assets/prioritisation_summary.png)
-
----
-
-## System Overview
-
-WinShield+ is split into four main layers:
+The normal run order is:
 
 ```text
-PowerShell collection layer
-    winshield_baseline.ps1
-    winshield_inventory.ps1
-    winshield_adapter.ps1
-    winshield_metadata.ps1
-
-Python orchestration layer
-    winshield_scanner.py
-    winshield_master.py
-
-Data and model layer
-    data_pipeline.py
-    model_pipeline.py
-    train_regression.py
-    train_classification.py
-    train_clustering.py
-
-Operator remediation layer
-    winshield_prioritiser.py
-    winshield_downloader.py
-    winshield_installer.py
+6) Model Setup
+1) Scan System
+2) Rank Risk
 ```
 
-The core supported workflow is:
+Model Setup is required before ranking because the runtime prioritiser depends on trained regression, classification, and clustering artefacts. Scan System is required before Rank Risk because runtime ranking depends on a fresh `data/runtime/scan_TIMESTAMP.json` file.
 
-```text
-scan → enrich → validate → prioritise
-```
+## Companion Collector Repository
 
-The downloader and installer modules are intentionally manual because Windows servicing behaviour depends on applicability, supersedence, servicing stack state, pending reboot state, and local configuration.
+WinShield+ is designed to work alongside a separate collector repository used to harvest scan results from permitted Windows environments:
 
----
+[github.com/erwinmagielda/winshield_colletor](https://github.com/erwinmagielda/winshield_colletor)
 
-## Pipeline Design
+The collector repository focuses on gathering scan material. This repository focuses on correlation, enrichment, modelling, ranking, and the remediation workflow.
 
-### 1. Host baseline collection
+## Technical Method
 
-`winshield_baseline.ps1` collects host metadata required for Windows/MSRC correlation:
+### Collection
 
-- OS name and edition
-- DisplayVersion
-- build and UBR
-- architecture
-- administrator context
-- latest cumulative update anchor
-- latest MSRC MonthId
-- resolved MSRC product name hint
+PowerShell scripts collect the Windows baseline, installed KB inventory, and MSRC advisory data. The scanner uses this information to identify expected KBs, installed KBs, superseded KBs, and missing KBs.
 
-This gives the Python scanner enough context to query the correct Windows product data from MSRC.
+### KB to CVE Mapping
 
-### 2. Installed update inventory
+The scanner maps KB entries to CVEs from MSRC CVRF data. Non-CVE advisory identifiers are filtered out before model-ready data is produced, which keeps the vulnerability pipeline focused on CVE records.
 
-`winshield_inventory.ps1` collects installed update identifiers from:
+### Runtime Scan Export
 
-- `Get-HotFix`
-- `Get-WindowsPackage -Online`, when running with administrator privileges
+Each scan exports a timestamped JSON file in `data/runtime/`. The runtime directory is cleared at the start of each scan so Rank Risk always works from a fresh runtime state.
 
-The result is a normalised installed KB list used to compare local state against expected MSRC KB entries.
+### Data Pipeline
 
-### 3. MSRC correlation
+The data pipeline has training and runtime modes.
 
-`winshield_adapter.ps1` aggregates MSRC CVRF data across selected MonthIds and builds KB entries containing:
+| Step | Training mode | Runtime mode |
+|---|---|---|
+| Flatten | Reads source scans from `data/scans/` | Reads latest runtime scan from `data/runtime/` |
+| Enrich | Adds MSRC metadata and CVSS fields | Adds MSRC metadata and CVSS fields |
+| Label | Creates rule-derived risk scores and priority labels | Skipped |
+| Validate | Removes rows missing required model inputs | Removes rows missing required model inputs |
 
-- KB ID
-- associated MonthIds
-- related CVEs
-- supersedence relationships
+### Risk Labelling
 
-The scanner then resolves missing KBs while accounting for logical presence through supersedence.
+Training labels are derived from CVSS score, exploitation status, network attack vector, and patch age. This creates a repeatable supervised training target for the models while keeping the scoring logic transparent.
 
-### 4. CVE metadata enrichment
-
-`winshield_metadata.ps1` retrieves vulnerability metadata for requested MonthIds. The Python enrichment stage attaches:
-
-- CVSS base score
-- CVSS vector
-- parsed CVSS components
-- severity
-- published date
-- exploitation status
-- patch age in days
-
-Rows missing required model fields, such as `cvss_score` or `attack_vector`, are removed during validation.
-
-### 5. Machine learning prioritisation
-
-The training pipeline creates supervised labels using a rule-based training score. The score starts from CVSS base score and increases for exploitation status, network attack vector, and patch age.
-
-The trained models are then used at runtime:
+### Machine Learning
 
 | Model | Purpose |
-| --- | --- |
-| Random Forest Regressor | Predicts CVE-level risk score |
-| Logistic Regression | Predicts priority label |
-| KMeans | Groups vulnerabilities into behavioural clusters |
+|---|---|
+| RandomForestRegressor | Predicts a numerical risk score for each CVE row |
+| LogisticRegression | Predicts priority labels such as Low, Medium, or High |
+| KMeans | Groups similar vulnerability profiles into clusters |
 
-Runtime ranking is performed at KB level by taking the maximum predicted CVE risk for each missing KB. This means a KB with one highly risky CVE can be prioritised above a KB with many lower-risk CVEs.
+The models operate at CVE level. Runtime results are then aggregated back to KB level so missing updates can be ranked as remediation targets.
 
----
+### Runtime Ranking
 
-## Current Demonstration Run
+The prioritiser loads `data/runtime/validated_runtime.csv`, applies the trained models, then ranks KBs by maximum predicted CVE risk. The console output shows a KB-level remediation table and an aligned CVE-level breakdown for each KB. The full result is also saved as structured JSON.
 
-The current demo run shows the system working end to end.
+## Output Artefacts
 
-### Training dataset summary
+| Artefact | Purpose |
+|---|---|
+| `data/runtime/scan_TIMESTAMP.json` | Fresh runtime scan exported by Scan System |
+| `data/runtime/flattened_runtime.csv` | Runtime KB/CVE/month rows |
+| `data/runtime/enriched_runtime.csv` | Runtime rows enriched with MSRC metadata |
+| `data/runtime/validated_runtime.csv` | Runtime model-ready rows |
+| `data/dataset/validated_dataset.csv` | Training dataset used by the model pipeline |
+| `models/*.joblib` | Trained model and preprocessor artefacts |
+| `results/model_setup_run.json` | Structured Model Setup execution details |
+| `results/model_pipeline_summary.json` | Model training summary and artefact status |
+| `results/runtime_pipeline_summary.json` | Runtime data pipeline summary |
+| `results/ranking_results.json` | KB-level and CVE-level prioritisation output |
+| `results/clustering_elbow_curve.png` | Saved clustering elbow chart |
+| `results/clustering_scatter.png` | Saved clustering scatter chart |
 
-```text
-Training scan files: 9
-Flattened rows: 3094
-Validated rows: 3075
-Unique KBs: 38
-Unique CVEs requested: 1578
-Matched CVEs: 1575
-MSRC metadata CVEs returned: 9717
-Rows dropped during validation: 19
-```
-
-### Runtime summary
-
-```text
-Runtime scan files: 1
-Runtime rows: 121
-Runtime unique KBs: 2
-Runtime unique CVEs: 121
-Matched CVEs: 121
-Missing CVEs: 0
-Validation rows dropped: 0
-```
-
-### Runtime prioritisation result
-
-```text
-1. KB5083769 | Cluster: 0 | Classification: Medium | Risk: 11.08 | CVEs: 120
-2. KB5074109 | Cluster: 1 | Classification: High   | Risk: 10.88 | CVEs: 1
-```
-
-This demonstrates why risk-based ordering is useful. KB5083769 contains many related CVEs and receives the highest predicted risk score, while KB5074109 is still prioritised as high despite only mapping to one CVE.
-
----
-
-## Example `ranking_results.json`
-
-`results/ranking_results.json` contains KB-level ranking output with nested CVE-level model results.
-
-```json
-[
-  {
-    "kb_id": "KB5083769",
-    "max_risk": 11.08,
-    "classification": "Medium",
-    "cluster": 0,
-    "cves": [
-      {
-        "cve_id": "CVE-2026-26178",
-        "risk": 11.08,
-        "classification": "High",
-        "cluster": 1
-      }
-    ]
-  },
-  {
-    "kb_id": "KB5074109",
-    "max_risk": 10.88,
-    "classification": "High",
-    "cluster": 1,
-    "cves": [
-      {
-        "cve_id": "CVE-2025-6965",
-        "risk": 10.88,
-        "classification": "High",
-        "cluster": 1
-      }
-    ]
-  }
-]
-```
-
----
-
-## Repository Structure
+## Project Structure
 
 ```text
 winshield_plus/
-├── assets/                 # README screenshots
-├── data/
-│   ├── scans/              # Authorised source scan JSON files
-│   ├── dataset/            # Generated training CSVs, ignored by Git
-│   └── runtime/            # Generated runtime scans and CSVs, ignored by Git
-├── downloads/              # Downloaded update packages, ignored by Git
-├── models/                 # Generated model artefacts, ignored by Git
-├── results/                # Generated summaries and rankings, ignored by Git
 ├── src/
 │   ├── core/
 │   │   ├── winshield_master.py
@@ -302,208 +183,70 @@ winshield_plus/
 │   ├── model_pipeline.py
 │   ├── train_regression.py
 │   ├── train_classification.py
-│   └── train_clustering.py
-├── remove_run.py
-├── README.md
-├── LICENSE
-└── .gitignore
+│   ├── train_clustering.py
+│   └── clear_run.py
+├── data/
+│   ├── scans/
+│   ├── dataset/
+│   └── runtime/
+├── models/
+├── results/
+├── downloads/
+└── assets/
 ```
 
----
+## Requirements
 
-## Setup
+WinShield+ is designed for Windows lab environments.
 
-### Requirements
+| Requirement | Notes |
+|---|---|
+| Windows 10 or Windows 11 | Required for patch inventory and update tooling |
+| PowerShell | Used by the collectors and MSRC adapter scripts |
+| Python 3.10 or later | Used by the data pipeline, model pipeline, and CLI workflow |
+| MsrcSecurityUpdates PowerShell module | Used to query Microsoft security update data |
+| Python packages | `pandas`, `numpy`, `scikit-learn`, `joblib`, `requests`, `beautifulsoup4`, `matplotlib` |
 
-WinShield+ requires:
-
-- Windows 10 or Windows 11
-- PowerShell
-- Python 3.10 or later
-- Microsoft `MsrcSecurityUpdates` PowerShell module
-
-Install Python dependencies:
-
-```powershell
-pip install pandas numpy scikit-learn joblib requests beautifulsoup4 matplotlib
-```
-
-Install the PowerShell dependency:
+Install the MSRC PowerShell module if required:
 
 ```powershell
 Install-Module MsrcSecurityUpdates -Scope CurrentUser
 ```
 
-If script execution is blocked, run PowerShell through:
+Install Python dependencies from your environment or requirements file:
 
-```powershell
--ExecutionPolicy Bypass
+```bash
+pip install pandas numpy scikit-learn joblib requests beautifulsoup4 matplotlib
 ```
 
-The project uses this internally when launching PowerShell scripts from Python.
+Run the master menu:
 
----
-
-## Usage
-
-### Option A: Run from the master menu
-
-```powershell
-python src\core\winshield_master.py
+```bash
+python src/core/winshield_master.py
 ```
-
-Menu options:
-
-```text
-1) Scan System
-2) Rank Risk
-3) Download Update
-4) Install Update
-5) Clean Artefacts
-6) Exit
-```
-
-### Option B: Run stages manually
-
-Clean generated artefacts:
-
-```powershell
-python remove_run.py
-```
-
-Build the training dataset:
-
-```powershell
-python training\data_pipeline.py --mode training
-```
-
-Train all models:
-
-```powershell
-python training\model_pipeline.py
-```
-
-Scan the current system:
-
-```powershell
-python src\core\winshield_scanner.py
-```
-
-Build the runtime dataset:
-
-```powershell
-python training\data_pipeline.py --mode runtime
-```
-
-Prioritise missing KBs:
-
-```powershell
-python src\core\winshield_prioritiser.py
-```
-
-Optional package retrieval:
-
-```powershell
-python src\core\winshield_downloader.py
-```
-
-Optional package installation helper:
-
-```powershell
-python src\core\winshield_installer.py
-```
-
----
-
-## Generated Outputs
-
-WinShield+ writes structured outputs to support traceability and review.
-
-```text
-results/training_pipeline_summary.json
-results/runtime_pipeline_summary.json
-results/model_pipeline_summary.json
-results/prioritisation_summary.json
-results/ranking_results.json
-results/downloader_summary.json
-results/installer_summary.json
-```
-
-These outputs record evidence such as:
-
-- scan files processed
-- rows created
-- unique KBs and CVEs
-- MonthIds requested
-- MSRC metadata CVEs returned
-- matched and missing CVEs
-- rows validated and dropped
-- model artefacts created
-- prioritisation results produced
-- downloader and installer attempts
-
----
-
-## Data and Artefact Handling
-
-The repository separates source inputs from generated artefacts.
-
-Tracked or suitable for tracking:
-
-```text
-assets/
-data/scans/
-src/
-training/
-README.md
-LICENSE
-.gitignore
-```
-
-Ignored generated artefacts:
-
-```text
-data/dataset/
-data/runtime/
-results/
-models/
-downloads/
-collector/
-```
-
-The separate `collector/` concept was used as an authorised scanner-only utility for collecting JSON scan inputs. It is intentionally split out of the main WinShield+ repository to keep this project focused on patch analysis, enrichment, modelling, and prioritisation.
-
----
 
 ## Limitations
 
-- WinShield+ depends on the `MsrcSecurityUpdates` PowerShell module.
-- MSRC product names and CVRF structures can change over time.
-- Microsoft Update Catalog HTML parsing may require maintenance if Microsoft changes the site structure.
-- Installer behaviour depends on Windows servicing rules and cannot guarantee successful installation.
-- The supervised training labels are generated from a rule-based scoring function, not from real incident outcomes.
-- The prioritisation output supports operator decision-making, but it does not replace enterprise vulnerability management tooling.
+WinShield+ is a lab and portfolio tool, not a production patch management platform. The installer stage relies on Windows servicing behaviour and may fail, roll back, or require a restart depending on package state and host configuration.
 
----
+The machine learning labels are rule-derived rather than business-ground-truth risk labels. They are useful for demonstrating repeatable prioritisation logic, but they should support operator judgement rather than replace it.
+
+MSRC data structures can vary by month, product, and advisory format. The project includes filtering and validation steps, but Microsoft advisory data should still be reviewed when making real remediation decisions.
 
 ## Skills Demonstrated
 
-- Windows administration and patch-state analysis
-- PowerShell scripting and Windows inventory collection
-- Python automation and subprocess orchestration
-- MSRC CVRF advisory handling
-- KB-to-CVE correlation
-- Supersedence-aware patch reasoning
-- CVSS vector parsing and vulnerability enrichment
-- Data pipeline design with training/runtime separation
-- Regression, classification, and clustering workflows
-- JSON and CSV processing
-- Runtime model inference
-- Operational reporting and traceability
-- Repository hygiene and generated artefact separation
+| Area | Evidence in project |
+|---|---|
+| Windows support | Baseline collection, KB inventory, update state handling, WUSA and DISM workflow |
+| PowerShell automation | Windows collectors, MSRC CVRF retrieval, metadata extraction |
+| Python engineering | CLI workflow, file handling, structured JSON output, pipeline orchestration |
+| Vulnerability management | KB to CVE mapping, CVSS parsing, exploitation context, patch age handling |
+| Data pipelines | Flatten, enrich, label, validate, train, rank workflow |
+| Machine learning | Regression, classification, clustering, preprocessing, saved model artefacts |
+| Operational thinking | Setup gating, runtime clearing, repo-relative output, structured artefacts, reproducible execution |
 
----
+## Future Improvements
 
-## Disclaimer
+Future work could include signed package verification, richer update install validation, HTML reporting, clearer supersedence visualisation, and a dashboard view for ranked remediation results.
 
-WinShield+ is an educational and portfolio project built for authorised Windows systems and lab environments. It should only be used on systems where scanning, update analysis, package download, and installation attempts are permitted.
+The next practical improvement would be an exportable report that turns `results/ranking_results.json` into a concise HTML or PDF remediation summary.
