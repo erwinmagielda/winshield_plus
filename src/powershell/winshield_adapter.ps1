@@ -138,7 +138,7 @@ foreach ($monthId in $MonthIds) {
             }
 
             foreach ($cve in $cveList) {
-                if ($cve -and $kbMap[$kb].Cves -notcontains $cve) {
+                if ($cve -and $cve -like "CVE-*" -and $kbMap[$kb].Cves -notcontains $cve) {
                     $kbMap[$kb].Cves += $cve
                 }
             }
