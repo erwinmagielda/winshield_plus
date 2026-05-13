@@ -30,6 +30,9 @@ INSTALLER_SCRIPT = SCRIPT_DIR / "winshield_installer.py"
 
 RUNTIME_DIR = ROOT_DIR / "data" / "runtime"
 MODELS_DIR = ROOT_DIR / "models"
+RESULTS_DIR = ROOT_DIR / "results"
+
+MODEL_SETUP_LOG = RESULTS_DIR / "model_setup_output.log"
 
 PYTHON_EXE = sys.executable
 
@@ -81,10 +84,7 @@ def models_are_present() -> bool:
 def runtime_scan_is_present() -> bool:
     """Return True if a runtime system scan is available."""
 
-    if RUNTIME_DIR.is_dir() and any(RUNTIME_DIR.glob("scan_*.json")):
-        return True
-
-    return False
+    return RUNTIME_DIR.is_dir() and any(RUNTIME_DIR.glob("scan_*.json"))
 
 
 # ------------------------------------------------------------
@@ -134,44 +134,54 @@ def run_stage(label: str, script_path: Path) -> int:
 # ------------------------------------------------------------
 
 def run_model_setup() -> int:
-    """Run training data preparation followed by model training."""
+    """Run training data preparation followed by model training quietly."""
 
     pipeline = [
         (DATA_PIPELINE_SCRIPT, ["--mode", "training"]),
         (MODEL_PIPELINE_SCRIPT, []),
     ]
 
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+
     print()
     print("[*] Starting model setup pipeline")
-    print(f"[*] Root directory: {ROOT_DIR}")
+    print("[i] Detailed output is being written to results/model_setup_output.log")
     print()
 
-    for script_path, args in pipeline:
+    with MODEL_SETUP_LOG.open("w", encoding="utf-8") as log_file:
 
-        if not script_path.is_file():
-            print(f"[X] Missing model setup script: {script_path}")
-            return 1
+        for script_path, args in pipeline:
 
-        print(f"[*] Running {script_path.name}")
+            if not script_path.is_file():
+                print(f"[X] Missing model setup script: {script_path}")
+                return 1
 
-        try:
-            result = subprocess.run(
-                [PYTHON_EXE, str(script_path), *args],
-                cwd=ROOT_DIR,
-                check=False,
-            )
+            print(f"[*] Running {script_path.name}...")
 
-        except KeyboardInterrupt:
-            print("\n[!] Model setup cancelled by user.\n")
-            return 130
+            log_file.write(f"\n=== Running {script_path.name} ===\n")
+            log_file.flush()
 
-        except Exception as exc:
-            print(f"[X] Failed to execute model setup stage: {exc}\n")
-            return 1
+            try:
+                result = subprocess.run(
+                    [PYTHON_EXE, str(script_path), *args],
+                    cwd=ROOT_DIR,
+                    stdout=log_file,
+                    stderr=subprocess.STDOUT,
+                    check=False,
+                )
 
-        if result.returncode != 0:
-            print("[X] Model setup stage failed.\n")
-            return int(result.returncode)
+            except KeyboardInterrupt:
+                print("\n[!] Model setup cancelled by user.\n")
+                return 130
+
+            except Exception as exc:
+                print(f"[X] Failed to execute model setup stage: {exc}\n")
+                return 1
+
+            if result.returncode != 0:
+                print(f"[X] {script_path.name} failed.")
+                print("[i] Check results/model_setup_output.log for details.\n")
+                return int(result.returncode)
 
     print("[+] Model setup completed successfully.\n")
     return 0
