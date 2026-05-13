@@ -56,7 +56,7 @@ def relative_path(path: Path) -> str:
     """Return a repository-relative path for clean output."""
 
     try:
-        return str(path.relative_to(ROOT_DIR))
+        return path.relative_to(ROOT_DIR).as_posix()
     except ValueError:
         return str(path)
 
@@ -175,16 +175,16 @@ def build_results(predictions: pd.DataFrame) -> list[dict[str, Any]]:
     output: list[dict[str, Any]] = []
 
     for kb_id, kb_rows in predictions.groupby("kb_id"):
+        cve_rows = kb_rows.sort_values("regression", ascending=False)
+
         entry = {
             "kb_id": kb_id,
-            "max_risk": float(kb_rows["regression"].max()),
-            "classification": kb_rows["classification"].mode()[0],
-            "cluster": int(kb_rows["cluster"].mode()[0]),
-            "cve_count": int(len(kb_rows)),
+            "max_risk": float(cve_rows["regression"].max()),
+            "classification": cve_rows["classification"].mode()[0],
+            "cluster": int(cve_rows["cluster"].mode()[0]),
+            "cve_count": int(len(cve_rows)),
             "cves": [],
         }
-
-        cve_rows = kb_rows.sort_values("regression", ascending=False)
 
         for _, row in cve_rows.iterrows():
             entry["cves"].append(
@@ -216,7 +216,7 @@ def print_runtime_summary(runtime_data: pd.DataFrame) -> None:
 
 
 def print_patch_recommendation(predictions: pd.DataFrame) -> None:
-    """Print KB-level remediation order based on maximum predicted risk."""
+    """Print aligned KB-level remediation order based on predicted risk."""
 
     print_section("Ranked Remediation")
 
@@ -226,45 +226,82 @@ def print_patch_recommendation(predictions: pd.DataFrame) -> None:
         print("[!] No ranking results produced")
         return
 
+    header = (
+        f"{'Rank':<6} | "
+        f"{'KB':<12} | "
+        f"{'Risk':>7} | "
+        f"{'Priority':<10} | "
+        f"{'Cluster':>7} | "
+        f"{'CVEs':>5}"
+    )
+
+    print(header)
+    print("-" * len(header))
+
     for index, entry in enumerate(results, start=1):
         print(
-            f"{index}. {entry['kb_id']} | "
-            f"Risk: {entry['max_risk']:.2f} | "
-            f"Priority: {entry['classification']} | "
-            f"Cluster: {entry['cluster']} | "
-            f"CVEs: {entry['cve_count']}"
+            f"{index:<6} | "
+            f"{entry['kb_id']:<12} | "
+            f"{entry['max_risk']:>7.2f} | "
+            f"{entry['classification']:<10} | "
+            f"{entry['cluster']:>7} | "
+            f"{entry['cve_count']:>5}"
         )
 
 
 def print_kb_breakdown(predictions: pd.DataFrame) -> None:
-    """Print CVE-level prediction details grouped by ranked KB."""
+    """Print aligned CVE-level prediction details grouped by ranked KB."""
 
     print_section("CVE Breakdown")
 
     sorted_predictions = predictions.sort_values("regression", ascending=False)
     kb_order = get_kb_order(sorted_predictions)
 
-    for kb_id in kb_order:
+    cve_width = 18
+    risk_width = 7
+    priority_width = 10
+    cluster_width = 7
+
+    separator = "-" * 60
+
+    for index, kb_id in enumerate(kb_order, start=1):
         kb_rows = sorted_predictions[sorted_predictions["kb_id"] == kb_id]
 
         max_risk = kb_rows["regression"].max()
-        cluster = kb_rows["cluster"].mode()[0]
         classification = kb_rows["classification"].mode()[0]
+        cluster = kb_rows["cluster"].mode()[0]
+        cve_count = len(kb_rows)
 
+        if index > 1:
+            print()
+            print(separator)
+            print()
+
+        print(f"[+] {kb_id}")
         print(
-            f"[+] {kb_id} | "
-            f"Risk: {max_risk:.2f} | "
+            f"    KB risk: {max_risk:.2f} | "
             f"Priority: {classification} | "
             f"Cluster: {cluster} | "
-            f"CVEs: {len(kb_rows)}"
+            f"CVEs: {cve_count}"
         )
+        print()
+
+        header = (
+            f"    {'CVE':<{cve_width}} | "
+            f"{'Risk':>{risk_width}} | "
+            f"{'Priority':<{priority_width}} | "
+            f"{'Cluster':>{cluster_width}}"
+        )
+
+        print(header)
+        print("    " + "-" * (len(header) - 4))
 
         for _, row in kb_rows.iterrows():
             print(
-                f"    - {row['cve_id']} | "
-                f"Risk: {row['regression']:.2f} | "
-                f"Priority: {row['classification']} | "
-                f"Cluster: {row['cluster']}"
+                f"    {row['cve_id']:<{cve_width}} | "
+                f"{row['regression']:>{risk_width}.2f} | "
+                f"{row['classification']:<{priority_width}} | "
+                f"{row['cluster']:>{cluster_width}}"
             )
 
 
