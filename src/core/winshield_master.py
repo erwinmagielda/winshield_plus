@@ -163,11 +163,8 @@ def run_stage(label: str, script_path: Path) -> int:
         print(f"[X] {label} failed to launch: {exc}")
         return 1
 
-    print()
-
-    if return_code == 0:
-        print(f"[+] {label} completed")
-    else:
+    if return_code != 0:
+        print()
         print(f"[X] {label} failed: exit code {return_code}")
 
     return return_code
@@ -360,8 +357,6 @@ def run_runtime_pipeline() -> int:
         if result.returncode != 0:
             print(f"[X] {label} failed: exit code {result.returncode}")
             return int(result.returncode)
-
-        print(f"[+] {label} completed")
 
     print()
     print("[+] Rank Risk completed")
