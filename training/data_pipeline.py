@@ -58,13 +58,23 @@ def parse_args() -> argparse.Namespace:
 
 
 # ------------------------------------------------------------
-# SUMMARY HELPERS
+# DISPLAY AND SUMMARY HELPERS
 # ------------------------------------------------------------
 
-def relative_path(path: Path) -> str:
-    """Return a project-relative path for summary output."""
+def print_section(title: str) -> None:
+    """Print a standard data pipeline section heading."""
 
-    return str(path.relative_to(BASE_DIR))
+    print()
+    print(f"--- {title} ---")
+
+
+def relative_path(path: Path) -> str:
+    """Return a repository-relative path for clean output."""
+
+    try:
+        return str(path.relative_to(BASE_DIR))
+    except ValueError:
+        return str(path)
 
 
 def utc_timestamp() -> str:
@@ -81,7 +91,7 @@ def save_pipeline_summary(mode: str, summary: dict[str, Any]) -> Path:
     with output_path.open("w", encoding="utf-8") as file:
         json.dump(summary, file, indent=2)
 
-    print(f"[+] Pipeline summary saved to {output_path}")
+    print(f"[+] Summary saved: {relative_path(output_path)}")
 
     return output_path
 
@@ -100,7 +110,7 @@ def find_latest_runtime_scan() -> Path:
     )
 
     if not scan_files:
-        raise RuntimeError("No runtime scans found. Run winshield_scanner.py first.")
+        raise RuntimeError("No runtime scans found. Run Scan System first.")
 
     return scan_files[0]
 
@@ -111,7 +121,7 @@ def find_training_scans() -> list[Path]:
     scan_files = sorted(SCANS_DIR.glob("*.json"))
 
     if not scan_files:
-        raise RuntimeError("No training scans found in data/scans.")
+        raise RuntimeError("No training scans found in data/scans")
 
     return scan_files
 
@@ -123,6 +133,8 @@ def find_training_scans() -> list[Path]:
 def flatten_scans(mode: str) -> tuple[Path, dict[str, Any]]:
     """Flatten scan JSON files into KB/CVE/month rows."""
 
+    print_section("Flatten")
+
     if mode == "training":
         scan_files = find_training_scans()
         output_path = DATASET_DIR / "flattened_dataset.csv"
@@ -131,6 +143,9 @@ def flatten_scans(mode: str) -> tuple[Path, dict[str, Any]]:
         scan_files = [find_latest_runtime_scan()]
         output_path = RUNTIME_DIR / "flattened_runtime.csv"
         source_directory = RUNTIME_DIR
+
+    print(f"[*] Source directory: {relative_path(source_directory)}")
+    print(f"[*] Scan files: {len(scan_files)}")
 
     rows: list[dict[str, Any]] = []
 
@@ -170,8 +185,10 @@ def flatten_scans(mode: str) -> tuple[Path, dict[str, Any]]:
         "output": relative_path(output_path),
     }
 
-    print(f"[+] Flatten saved to {output_path}")
-    print(f"[i] Flatten rows: {summary['rows_created']}")
+    print(f"[+] Rows created: {summary['rows_created']}")
+    print(f"[+] Unique KBs: {summary['unique_kbs']}")
+    print(f"[+] Unique CVEs: {summary['unique_cves']}")
+    print(f"[+] Output: {relative_path(output_path)}")
 
     return output_path, summary
 
@@ -255,21 +272,21 @@ def fetch_msrc_metadata(month_ids: list[str]) -> dict[str, Any]:
         if result.stderr:
             print(result.stderr.strip())
 
-        raise RuntimeError("MSRC metadata collection failed.")
+        raise RuntimeError("MSRC metadata collection failed")
 
     stdout = result.stdout.strip()
 
     if not stdout:
-        raise RuntimeError("MSRC metadata collection returned no output.")
+        raise RuntimeError("MSRC metadata collection returned no output")
 
     try:
         metadata = json.loads(stdout)
     except json.JSONDecodeError as exc:
         print(stdout[:1000])
-        raise RuntimeError("MSRC metadata collection returned invalid JSON.") from exc
+        raise RuntimeError("MSRC metadata collection returned invalid JSON") from exc
 
     if not isinstance(metadata, dict):
-        raise RuntimeError("MSRC metadata collection returned unexpected JSON structure.")
+        raise RuntimeError("MSRC metadata collection returned unexpected JSON structure")
 
     return {
         str(cve_id).strip().upper(): value
@@ -297,8 +314,9 @@ def calculate_patch_age_days(published_date: str | None, today: datetime) -> int
 def enrich_data(input_csv: Path) -> tuple[Path, dict[str, Any]]:
     """Enrich flattened rows with MSRC CVE metadata and parsed CVSS fields."""
 
-    output_path = Path(str(input_csv).replace("flattened", "enriched"))
+    print_section("Enrich")
 
+    output_path = Path(str(input_csv).replace("flattened", "enriched"))
     flattened_data = pd.read_csv(input_csv)
 
     month_ids = sorted(
@@ -306,6 +324,8 @@ def enrich_data(input_csv: Path) -> tuple[Path, dict[str, Any]]:
         for month in flattened_data["month"].dropna().unique()
         if str(month).strip()
     )
+
+    print(f"[*] Collecting MSRC metadata: {len(month_ids)} MonthIds")
 
     metadata = fetch_msrc_metadata(month_ids)
 
@@ -317,10 +337,9 @@ def enrich_data(input_csv: Path) -> tuple[Path, dict[str, Any]]:
     matched_cves = [cve for cve in requested_cves if cve in metadata]
     missing_cves = [cve for cve in requested_cves if cve not in metadata]
 
-    print(f"[i] MonthIds requested: {', '.join(month_ids)}")
-    print(f"[i] Metadata CVEs returned: {len(metadata)}")
-    print(f"[i] Requested CVEs: {len(requested_cves)}")
-    print(f"[i] Matched CVEs: {len(matched_cves)}")
+    print(f"[+] Metadata CVEs returned: {len(metadata)}")
+    print(f"[+] Requested CVEs: {len(requested_cves)}")
+    print(f"[+] Matched CVEs: {len(matched_cves)}")
     print(f"[i] Missing CVEs: {len(missing_cves)}")
 
     if missing_cves:
@@ -364,7 +383,7 @@ def enrich_data(input_csv: Path) -> tuple[Path, dict[str, Any]]:
         "output": relative_path(output_path),
     }
 
-    print(f"[+] Enrich saved to {output_path}")
+    print(f"[+] Output: {relative_path(output_path)}")
 
     return output_path, summary
 
@@ -402,6 +421,8 @@ def compute_risk_label(row: pd.Series) -> tuple[float, str]:
 def label_training_data(input_csv: Path) -> tuple[Path, dict[str, Any]]:
     """Apply synthetic risk labels for supervised model training."""
 
+    print_section("Label")
+
     enriched_data = pd.read_csv(input_csv)
 
     enriched_data[["risk_score", "priority_label"]] = enriched_data.apply(
@@ -423,7 +444,12 @@ def label_training_data(input_csv: Path) -> tuple[Path, dict[str, Any]]:
         "output": relative_path(output_path),
     }
 
-    print(f"[+] Label saved to {output_path}")
+    print(f"[+] Rows labelled: {summary['rows_labelled']}")
+
+    for label, count in label_distribution.items():
+        print(f"[i] {label}: {count}")
+
+    print(f"[+] Output: {relative_path(output_path)}")
 
     return output_path, summary
 
@@ -449,6 +475,8 @@ def ensure_required_columns(
 
 def validate_data(input_csv: Path, mode: str) -> tuple[Path, dict[str, Any]]:
     """Validate pipeline rows and drop incomplete model inputs."""
+
+    print_section("Validate")
 
     pipeline_data = pd.read_csv(input_csv)
 
@@ -486,13 +514,13 @@ def validate_data(input_csv: Path, mode: str) -> tuple[Path, dict[str, Any]]:
         "output": relative_path(output_path),
     }
 
-    print(f"[+] Validate saved to {output_path}")
-    print(f"[i] Validation rows before: {before_count}")
-    print(f"[i] Validation rows after:  {after_count}")
-    print(f"[i] Validation dropped:     {dropped_count}")
+    print(f"[+] Rows before: {before_count}")
+    print(f"[+] Rows after: {after_count}")
+    print(f"[i] Rows dropped: {dropped_count}")
+    print(f"[+] Output: {relative_path(output_path)}")
 
     if after_count == 0:
-        print("[!] Warning: validation produced an empty dataset.")
+        print("[!] Validation produced an empty dataset")
 
     return output_path, summary
 
@@ -504,7 +532,10 @@ def validate_data(input_csv: Path, mode: str) -> tuple[Path, dict[str, Any]]:
 def run_pipeline(mode: str) -> Path:
     """Run the selected WinShield+ data pipeline mode."""
 
-    print(f"\n=== Data Pipeline ({mode}) ===\n")
+    print()
+    print("=" * 60)
+    print(f"WinShield+ - Data Pipeline ({mode})")
+    print("=" * 60)
 
     summary: dict[str, Any] = {
         "pipeline": "data_pipeline",
@@ -531,9 +562,12 @@ def run_pipeline(mode: str) -> Path:
     summary["final_output"] = relative_path(output_path)
     summary["status"] = "completed"
 
+    print_section("Summary")
+    print(f"[+] Final output: {relative_path(output_path)}")
     save_pipeline_summary(mode, summary)
 
-    print("\n=== Pipeline Complete ===\n")
+    print()
+    print(f"[+] Data Pipeline ({mode}) completed")
 
     return output_path
 

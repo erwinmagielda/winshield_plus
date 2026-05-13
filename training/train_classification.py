@@ -13,12 +13,7 @@ import joblib
 import pandas as pd
 from sklearn.compose import ColumnTransformer
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import (
-    accuracy_score,
-    classification_report,
-    confusion_matrix,
-    f1_score,
-)
+from sklearn.metrics import accuracy_score, f1_score
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
@@ -47,6 +42,26 @@ TEST_SIZE = 0.2
 
 
 # ------------------------------------------------------------
+# DISPLAY HELPERS
+# ------------------------------------------------------------
+
+def print_section(title: str) -> None:
+    """Print a standard classification section heading."""
+
+    print()
+    print(f"--- {title} ---")
+
+
+def relative_path(path: Path) -> str:
+    """Return a repository-relative path for clean output."""
+
+    try:
+        return str(path.relative_to(BASE_DIR))
+    except ValueError:
+        return str(path)
+
+
+# ------------------------------------------------------------
 # DATA LOADING
 # ------------------------------------------------------------
 
@@ -54,7 +69,7 @@ def load_training_data() -> pd.DataFrame:
     """Load validated training data."""
 
     if not DATA_PATH.is_file():
-        raise RuntimeError("Validated dataset not found. Run data_pipeline.py first.")
+        raise RuntimeError("Validated dataset missing. Run Data Pipeline first.")
 
     return pd.read_csv(DATA_PATH)
 
@@ -116,56 +131,39 @@ def build_preprocessor(features: pd.DataFrame) -> ColumnTransformer:
 # REPORTING
 # ------------------------------------------------------------
 
+def print_class_distribution(target: pd.Series) -> None:
+    """Print class distribution for the training target."""
+
+    distribution = target.value_counts()
+
+    print("[+] Class labels:", len(distribution))
+
+    for label, count in distribution.items():
+        print(f"[i] {label}: {count}")
+
+
 def print_feature_summary(features: pd.DataFrame) -> None:
-    """Print numeric and categorical feature groups."""
+    """Print concise numeric and categorical feature counts."""
 
     numeric_features = features.select_dtypes(include=["int64", "float64"]).columns
     categorical_features = features.select_dtypes(include=["object", "string"]).columns
 
-    print("\nNumeric features:", list(numeric_features))
-    print("Categorical features:", list(categorical_features))
-
-
-def print_processed_preview(
-    processed_features: Any,
-    preprocessor: ColumnTransformer,
-    rows: int = 20,
-) -> None:
-    """Print a small preview of the processed training matrix."""
-
-    feature_names = preprocessor.get_feature_names_out().astype(str)
-
-    if hasattr(processed_features, "toarray"):
-        preview_data = processed_features[:rows].toarray()
-    else:
-        preview_data = processed_features[:rows]
-
-    preview = pd.DataFrame(preview_data, columns=feature_names)
-
-    print("\n=== Processed Dataset Preview (Top 20) ===")
-    print(preview.head(rows))
+    print(f"[+] Feature columns: {len(features.columns)}")
+    print(f"[i] Numeric features: {len(numeric_features)}")
+    print(f"[i] Categorical features: {len(categorical_features)}")
 
 
 def print_evaluation(
     test_target: pd.Series,
     predictions: pd.Series,
-    labels: list[str],
 ) -> None:
-    """Print classification evaluation metrics."""
+    """Print concise classification evaluation metrics."""
 
     accuracy = accuracy_score(test_target, predictions)
     f1 = f1_score(test_target, predictions, average="weighted")
-    matrix = confusion_matrix(test_target, predictions, labels=labels)
 
-    print("\n=== Results ===")
-    print(f"Accuracy: {accuracy:.4f}")
-    print(f"F1 Score: {f1:.4f}")
-
-    print("\nConfusion Matrix:")
-    print(matrix)
-
-    print("\nClassification Report:")
-    print(classification_report(test_target, predictions))
+    print(f"[+] Accuracy: {accuracy:.4f}")
+    print(f"[+] Weighted F1: {f1:.4f}")
 
 
 # ------------------------------------------------------------
@@ -193,7 +191,7 @@ def train_model(
 # MODEL EXPORT
 # ------------------------------------------------------------
 
-def save_artifacts(
+def save_artefacts(
     model: LogisticRegression,
     preprocessor: ColumnTransformer,
 ) -> None:
@@ -202,8 +200,8 @@ def save_artifacts(
     joblib.dump(model, MODEL_PATH)
     joblib.dump(preprocessor, PREPROCESSOR_PATH)
 
-    print("\n[+] Model saved to:", MODEL_PATH)
-    print("[+] Preprocessor saved to:", PREPROCESSOR_PATH)
+    print(f"[+] Model saved: {relative_path(MODEL_PATH)}")
+    print(f"[+] Preprocessor saved: {relative_path(PREPROCESSOR_PATH)}")
 
 
 # ------------------------------------------------------------
@@ -211,20 +209,24 @@ def save_artifacts(
 # ------------------------------------------------------------
 
 def main() -> None:
-    print("\n=== Classification Training ===\n")
+    """Run classification model training."""
 
+    print()
+    print("=" * 60)
+    print("WinShield+ - Classification Training")
+    print("=" * 60)
+
+    print_section("Load Data")
     training_data = load_training_data()
     training_data = add_exploitation_flag(training_data)
 
-    print("Dataset shape:", training_data.shape)
-
-    print("\nExploitation flag distribution:")
-    print(training_data["exploited_flag"].value_counts())
+    print(f"[+] Dataset rows: {len(training_data)}")
+    print(f"[+] Dataset columns: {len(training_data.columns)}")
 
     features, target = split_features_and_target(training_data)
 
-    print("\nClass distribution:")
-    print(target.value_counts())
+    print_section("Prepare Features")
+    print_class_distribution(target)
 
     train_features, test_features, train_target, test_target = train_test_split(
         features,
@@ -234,9 +236,8 @@ def main() -> None:
         stratify=target,
     )
 
-    print("\nTrain shape:", train_features.shape)
-    print("Test shape:", test_features.shape)
-
+    print(f"[+] Training rows: {len(train_features)}")
+    print(f"[+] Test rows: {len(test_features)}")
     print_feature_summary(train_features)
 
     preprocessor = build_preprocessor(train_features)
@@ -244,10 +245,8 @@ def main() -> None:
     processed_train_features = preprocessor.fit_transform(train_features)
     processed_test_features = preprocessor.transform(test_features)
 
-    print_processed_preview(
-        processed_features=processed_train_features,
-        preprocessor=preprocessor,
-    )
+    print_section("Train Model")
+    print("[*] Training LogisticRegression classifier")
 
     model = train_model(
         training_features=processed_train_features,
@@ -255,20 +254,20 @@ def main() -> None:
     )
 
     predictions = model.predict(processed_test_features)
-    labels = sorted(target.unique())
 
     print_evaluation(
         test_target=test_target,
         predictions=predictions,
-        labels=labels,
     )
 
-    save_artifacts(
+    print_section("Export")
+    save_artefacts(
         model=model,
         preprocessor=preprocessor,
     )
 
-    print("\n=== Training Complete ===\n")
+    print()
+    print("[+] Classification Training completed")
 
 
 # ------------------------------------------------------------

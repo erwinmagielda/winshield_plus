@@ -25,6 +25,26 @@ DOWNLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 # ------------------------------------------------------------
+# DISPLAY HELPERS
+# ------------------------------------------------------------
+
+def print_section(title: str) -> None:
+    """Print a standard installer section heading."""
+
+    print()
+    print(f"--- {title} ---")
+
+
+def relative_path(path: Path) -> str:
+    """Return a repository-relative path for clean output."""
+
+    try:
+        return str(path.relative_to(ROOT_DIR))
+    except ValueError:
+        return str(path)
+
+
+# ------------------------------------------------------------
 # PRIVILEGE CHECK
 # ------------------------------------------------------------
 
@@ -107,7 +127,7 @@ def install_package(package_path: Path) -> int:
             ]
         )
 
-    raise RuntimeError(f"Unsupported package type: {package_path}")
+    raise RuntimeError(f"Unsupported package type: {relative_path(package_path)}")
 
 
 # ------------------------------------------------------------
@@ -126,24 +146,47 @@ def safe_input(prompt: str) -> str:
 def select_package(packages: list[Path]) -> Path | None:
     """Ask the operator to select a package from the available downloads."""
 
-    print()
+    print_section("Available Packages")
 
     for index, package_path in enumerate(packages, start=1):
-        print(f"{index}) {package_path.name}")
+        kb_label = extract_kb_label(package_path.name)
+        print(f"{index}) {kb_label} | {package_path.name}")
 
-    raw_selection = safe_input("Select package number: ").strip()
+    raw_selection = safe_input("\nSelect package: ").strip()
 
     if not raw_selection.isdigit():
-        print("[!] Invalid selection")
+        print("[X] Invalid selection")
         return None
 
     selected_index = int(raw_selection)
 
     if selected_index < 1 or selected_index > len(packages):
-        print("[!] Selection out of range")
+        print("[X] Selection out of range")
         return None
 
     return packages[selected_index - 1]
+
+
+# ------------------------------------------------------------
+# INSTALL RESULT HANDLING
+# ------------------------------------------------------------
+
+def print_install_result(exit_code: int) -> int:
+    """Print a clean installer result and return the workflow exit code."""
+
+    print(f"[+] Installer exit code: {exit_code}")
+
+    if exit_code == 0:
+        print("[+] Installation completed")
+        return 0
+
+    if exit_code == 3010:
+        print("[!] Installation completed")
+        print("[i] Restart required")
+        return 0
+
+    print("[X] Installation failed or was rejected by Windows servicing")
+    return 1
 
 
 # ------------------------------------------------------------
@@ -151,17 +194,31 @@ def select_package(packages: list[Path]) -> Path | None:
 # ------------------------------------------------------------
 
 def main() -> int:
-    print("[*] Running WinShield+ installer")
+    """Run the WinShield+ update installer workflow."""
+
+    print()
+    print("=" * 60)
+    print("WinShield+ - Install Update")
+    print("=" * 60)
+
+    print_section("Pre-flight")
+    print("[*] Checking administrator privileges")
 
     if not is_admin():
-        print("[!] Administrator privileges are required")
+        print("[X] Administrator privileges required")
         return 1
 
+    print("[+] Administrator privileges confirmed")
+    print(f"[+] Downloads directory: {relative_path(DOWNLOADS_DIR)}")
+
+    print_section("Package Discovery")
     packages = find_packages(DOWNLOADS_DIR)
 
     if not packages:
         print("[+] No update packages found")
         return 0
+
+    print(f"[+] Packages found: {len(packages)}")
 
     selected_package = select_package(packages)
 
@@ -170,23 +227,21 @@ def main() -> int:
 
     kb_label = extract_kb_label(selected_package.name)
 
-    print(f"[*] Installing {kb_label}")
-    print("[*] Automatic restart is disabled")
+    print_section("Install")
+    print(f"[*] Selected package: {kb_label}")
+    print(f"[i] Source: {relative_path(selected_package)}")
+    print("[i] Automatic restart disabled")
 
     exit_code = install_package(selected_package)
 
-    print(f"[+] Installer exit code: {exit_code}")
+    print_section("Result")
+    workflow_exit_code = print_install_result(exit_code)
 
-    if exit_code == 3010:
-        print("[!] Installation completed and requires restart")
-        return 0
+    if workflow_exit_code == 0:
+        print()
+        print("[+] Install Update completed")
 
-    if exit_code == 0:
-        print("[+] Installation completed")
-        return 0
-
-    print("[!] Installation failed or was rejected by Windows servicing")
-    return 1
+    return workflow_exit_code
 
 
 # ------------------------------------------------------------

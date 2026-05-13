@@ -38,6 +38,26 @@ RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
 
 
 # ------------------------------------------------------------
+# DISPLAY HELPERS
+# ------------------------------------------------------------
+
+def print_section(title: str) -> None:
+    """Print a standard scanner section heading."""
+
+    print()
+    print(f"--- {title} ---")
+
+
+def relative_path(path: Path) -> str:
+    """Return a repository-relative path for clean console output."""
+
+    try:
+        return str(path.relative_to(ROOT_DIR))
+    except ValueError:
+        return str(path)
+
+
+# ------------------------------------------------------------
 # RUNTIME CLEANUP
 # ------------------------------------------------------------
 
@@ -48,8 +68,9 @@ def clear_runtime_directory() -> None:
         shutil.rmtree(RUNTIME_DIR)
 
     RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
-    print(f"[*] Runtime directory cleared: {RUNTIME_DIR}")
-    print()
+
+    print("[*] Clearing runtime artefacts")
+    print(f"[+] Runtime directory ready: {relative_path(RUNTIME_DIR)}")
 
 
 # ------------------------------------------------------------
@@ -85,6 +106,7 @@ def run_powershell_script(
     if result.returncode != 0:
         if result.stderr:
             print(result.stderr.strip())
+
         raise RuntimeError(f"{script_name} execution failed")
 
     stdout = result.stdout.strip()
@@ -254,7 +276,7 @@ def print_kb_table(
     col_status_width = 40
     col_months_width = 20
 
-    print("=== Correlation ===")
+    print_section("KB Correlation")
     print(
         f"{'KB':<{col_kb_width}} "
         f"{'Type':<{col_type_width}} "
@@ -323,10 +345,10 @@ def print_missing_kbs(
 ) -> None:
     """Print missing KB summary with associated months and CVE counts."""
 
-    print("=== Missing ===")
+    print_section("Missing KBs")
 
     if not missing_kbs:
-        print("None")
+        print("[+] No missing KBs detected")
         return
 
     for kb_id in missing_kbs:
@@ -334,7 +356,7 @@ def print_missing_kbs(
         months = ", ".join(entry.get("Months") or [])
         cve_count = len(entry.get("Cves") or [])
 
-        print(f"- {kb_id} | Months: {months}, CVEs: {cve_count}")
+        print(f"[!] {kb_id} | Months: {months} | CVEs: {cve_count}")
 
 
 # ------------------------------------------------------------
@@ -358,41 +380,45 @@ def export_runtime_scan(scan_result: dict[str, Any]) -> Path:
 # ------------------------------------------------------------
 
 def main() -> int:
+    """Run the WinShield+ system scan workflow."""
+
+    print_section("Runtime Preparation")
     clear_runtime_directory()
 
-    print("[*] Collecting baseline...")
+    print_section("Baseline")
+    print("[*] Collecting OS baseline")
     baseline = run_powershell_script(BASELINE_SCRIPT)
 
     product_name_hint = baseline.get("ProductNameHint")
     if not product_name_hint:
-        print("[!] Failed to resolve ProductNameHint")
+        print("[X] ProductNameHint could not be resolved")
         return 1
 
     print(
-        f"[+] {baseline.get('OsName')} "
+        f"[+] OS: {baseline.get('OsName')} "
         f"{baseline.get('DisplayVersion')} "
         f"({baseline.get('Build')})"
     )
     print(f"[+] Product: {product_name_hint}")
-    print()
 
-    print("[*] Collecting inventory...")
+    print_section("Inventory")
+    print("[*] Collecting installed KB inventory")
     inventory = run_powershell_script(INVENTORY_SCRIPT)
     installed_kbs = set(inventory.get("AllInstalledKbs") or [])
 
     print(f"[+] Installed KBs: {len(installed_kbs)}")
-    print()
 
-    print("[*] Building MonthId range...")
+    print_section("MSRC Correlation")
+    print("[*] Building MonthId range")
     month_ids = build_month_ids_from_lcu(baseline)
 
-    print(f"[+] Months: {', '.join(month_ids)}")
-    print()
+    print(f"[+] Months requested: {', '.join(month_ids)}")
 
     merged_entries: dict[str, dict[str, Any]] = {}
     months_with_entries: list[str] = []
 
-    print("[*] Querying MSRC...")
+    print("[*] Querying MSRC CVRF data")
+
     for month_chunk in chunk_list(month_ids, 3):
         msrc_data = run_powershell_script(
             ADAPTER_SCRIPT,
@@ -410,7 +436,7 @@ def main() -> int:
             merge_kb_entries(merged_entries, entries)
 
     if not merged_entries:
-        print("[!] No KB data returned")
+        print("[!] No KB data returned from MSRC")
         return 0
 
     kb_entries = list(merged_entries.values())
@@ -421,6 +447,9 @@ def main() -> int:
         entry["Supersedes"] = sorted(set(entry.get("Supersedes") or []))
         entry["UpdateType"] = "Superseding" if entry["Supersedes"] else "Standalone"
 
+    print(f"[+] KB entries mapped: {len(kb_entries)}")
+    print(f"[+] Months with entries: {len(set(months_with_entries))}")
+
     logical_present_kbs, superseded_by = compute_supersedence(
         kb_entries=kb_entries,
         installed_kbs=installed_kbs,
@@ -429,11 +458,9 @@ def main() -> int:
     expected_kbs = {entry["KB"] for entry in kb_entries}
     missing_kbs = sorted(expected_kbs - logical_present_kbs)
 
-    print()
-    print("=== Summary ===")
-    print(f"Expected KBs: {len(expected_kbs)}")
-    print(f"Missing KBs:  {len(missing_kbs)}")
-    print()
+    print_section("Summary")
+    print(f"[+] Expected KBs: {len(expected_kbs)}")
+    print(f"[+] Missing KBs: {len(missing_kbs)}")
 
     print_kb_table(
         kb_entries=kb_entries,
@@ -442,7 +469,6 @@ def main() -> int:
         superseded_by=superseded_by,
     )
 
-    print()
     print_missing_kbs(
         missing_kbs=missing_kbs,
         kb_entries=kb_entries,
@@ -458,7 +484,12 @@ def main() -> int:
     }
 
     runtime_scan_path = export_runtime_scan(scan_result)
-    print(f"[+] Runtime scan exported to {runtime_scan_path}")
+
+    print_section("Export")
+    print(f"[+] Runtime scan saved: {relative_path(runtime_scan_path)}")
+
+    print()
+    print("[+] Scan System completed")
 
     return 0
 

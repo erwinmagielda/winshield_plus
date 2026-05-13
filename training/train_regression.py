@@ -40,6 +40,27 @@ MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
 RANDOM_STATE = 2137
 TEST_SIZE = 0.2
+TOP_FEATURES = 10
+
+
+# ------------------------------------------------------------
+# DISPLAY HELPERS
+# ------------------------------------------------------------
+
+def print_section(title: str) -> None:
+    """Print a standard regression section heading."""
+
+    print()
+    print(f"--- {title} ---")
+
+
+def relative_path(path: Path) -> str:
+    """Return a repository-relative path for clean output."""
+
+    try:
+        return str(path.relative_to(BASE_DIR))
+    except ValueError:
+        return str(path)
 
 
 # ------------------------------------------------------------
@@ -50,7 +71,7 @@ def load_training_data() -> pd.DataFrame:
     """Load validated training data."""
 
     if not DATA_PATH.is_file():
-        raise RuntimeError("Validated dataset not found. Run data_pipeline.py first.")
+        raise RuntimeError("Validated dataset missing. Run Data Pipeline first.")
 
     return pd.read_csv(DATA_PATH)
 
@@ -116,40 +137,30 @@ def build_preprocessor(features: pd.DataFrame) -> ColumnTransformer:
 # ------------------------------------------------------------
 
 def print_feature_summary(features: pd.DataFrame) -> None:
-    """Print numeric and categorical feature groups."""
+    """Print concise numeric and categorical feature counts."""
 
     numeric_features = features.select_dtypes(include=["int64", "float64"]).columns
     categorical_features = features.select_dtypes(include=["object", "string"]).columns
 
-    print("\nNumeric features:", list(numeric_features))
-    print("Categorical features:", list(categorical_features))
+    print(f"[+] Feature columns: {len(features.columns)}")
+    print(f"[i] Numeric features: {len(numeric_features)}")
+    print(f"[i] Categorical features: {len(categorical_features)}")
 
 
-def print_processed_preview(
-    processed_features: Any,
-    preprocessor: ColumnTransformer,
-    rows: int = 20,
-) -> None:
-    """Print a small preview of the processed training matrix."""
+def print_target_summary(target: pd.Series) -> None:
+    """Print concise regression target summary."""
 
-    feature_names = preprocessor.get_feature_names_out().astype(str)
-
-    if hasattr(processed_features, "toarray"):
-        preview_data = processed_features[:rows].toarray()
-    else:
-        preview_data = processed_features[:rows]
-
-    preview = pd.DataFrame(preview_data, columns=feature_names)
-
-    print("\n=== Processed Dataset Preview (Top 20) ===")
-    print(preview.head(rows))
+    print(f"[+] Target rows: {len(target)}")
+    print(f"[i] Risk score min: {target.min():.2f}")
+    print(f"[i] Risk score max: {target.max():.2f}")
+    print(f"[i] Risk score mean: {target.mean():.2f}")
 
 
 def print_feature_importance(
     model: RandomForestRegressor,
     preprocessor: ColumnTransformer,
 ) -> None:
-    """Print the top feature importances from the trained model."""
+    """Print top feature importances from the trained model."""
 
     feature_names = preprocessor.get_feature_names_out().astype(str)
 
@@ -160,10 +171,28 @@ def print_feature_importance(
         }
     ).sort_values(by="importance", ascending=False)
 
-    print("\nTop 10 Feature Importances:")
+    print(f"[+] Top features: {TOP_FEATURES}")
 
-    for _, row in importance_data.head(10).iterrows():
-        print(f"{row['feature']} -> {row['importance']:.4f}")
+    for _, row in importance_data.head(TOP_FEATURES).iterrows():
+        print(f"[i] {row['feature']}: {row['importance']:.4f}")
+
+
+def print_evaluation(
+    model: RandomForestRegressor,
+    test_features: Any,
+    test_target: pd.Series,
+) -> None:
+    """Print concise regression evaluation metrics."""
+
+    predictions = model.predict(test_features)
+
+    mae = mean_absolute_error(test_target, predictions)
+    rmse = np.sqrt(mean_squared_error(test_target, predictions))
+    r2 = r2_score(test_target, predictions)
+
+    print(f"[+] MAE: {mae:.4f}")
+    print(f"[+] RMSE: {rmse:.4f}")
+    print(f"[+] R2: {r2:.4f}")
 
 
 # ------------------------------------------------------------
@@ -171,7 +200,7 @@ def print_feature_importance(
 # ------------------------------------------------------------
 
 def train_model(
-    training_features: pd.DataFrame,
+    training_features: Any,
     training_target: pd.Series,
 ) -> RandomForestRegressor:
     """Train the regression model."""
@@ -186,30 +215,11 @@ def train_model(
     return model
 
 
-def evaluate_model(
-    model: RandomForestRegressor,
-    test_features: pd.DataFrame,
-    test_target: pd.Series,
-) -> None:
-    """Evaluate the trained regression model."""
-
-    predictions = model.predict(test_features)
-
-    mae = mean_absolute_error(test_target, predictions)
-    rmse = np.sqrt(mean_squared_error(test_target, predictions))
-    r2 = r2_score(test_target, predictions)
-
-    print("\n=== Results ===")
-    print(f"MAE:  {mae:.4f}")
-    print(f"RMSE: {rmse:.4f}")
-    print(f"R2:   {r2:.4f}")
-
-
 # ------------------------------------------------------------
 # MODEL EXPORT
 # ------------------------------------------------------------
 
-def save_artifacts(
+def save_artefacts(
     model: RandomForestRegressor,
     preprocessor: ColumnTransformer,
 ) -> None:
@@ -218,8 +228,8 @@ def save_artifacts(
     joblib.dump(model, MODEL_PATH)
     joblib.dump(preprocessor, PREPROCESSOR_PATH)
 
-    print("\n[+] Model saved to:", MODEL_PATH)
-    print("[+] Preprocessor saved to:", PREPROCESSOR_PATH)
+    print(f"[+] Model saved: {relative_path(MODEL_PATH)}")
+    print(f"[+] Preprocessor saved: {relative_path(PREPROCESSOR_PATH)}")
 
 
 # ------------------------------------------------------------
@@ -227,17 +237,25 @@ def save_artifacts(
 # ------------------------------------------------------------
 
 def main() -> None:
-    print("\n=== Regression Training ===\n")
+    """Run regression model training."""
 
+    print()
+    print("=" * 60)
+    print("WinShield+ - Regression Training")
+    print("=" * 60)
+
+    print_section("Load Data")
     training_data = load_training_data()
     training_data = add_exploitation_flag(training_data)
 
-    print("Dataset shape:", training_data.shape)
-
-    print("\nExploitation flag distribution:")
-    print(training_data["exploited_flag"].value_counts())
+    print(f"[+] Dataset rows: {len(training_data)}")
+    print(f"[+] Dataset columns: {len(training_data.columns)}")
 
     features, target = split_features_and_target(training_data)
+
+    print_section("Prepare Features")
+    print_feature_summary(features)
+    print_target_summary(target)
 
     train_features, test_features, train_target, test_target = train_test_split(
         features,
@@ -246,46 +264,42 @@ def main() -> None:
         random_state=RANDOM_STATE,
     )
 
-    print("\nTrain shape:", train_features.shape)
-    print("Test shape:", test_features.shape)
-
-    print_feature_summary(train_features)
+    print(f"[+] Training rows: {len(train_features)}")
+    print(f"[+] Test rows: {len(test_features)}")
 
     preprocessor = build_preprocessor(train_features)
 
     processed_train_features = preprocessor.fit_transform(train_features)
     processed_test_features = preprocessor.transform(test_features)
 
-    print("\nProcessed shape (train):", processed_train_features.shape)
-    print("Processed shape (test):", processed_test_features.shape)
-
-    print_processed_preview(
-        processed_features=processed_train_features,
-        preprocessor=preprocessor,
-    )
+    print_section("Train Model")
+    print("[*] Training RandomForestRegressor")
 
     model = train_model(
         training_features=processed_train_features,
         training_target=train_target,
     )
 
-    evaluate_model(
+    print_evaluation(
         model=model,
         test_features=processed_test_features,
         test_target=test_target,
     )
 
+    print_section("Feature Importance")
     print_feature_importance(
         model=model,
         preprocessor=preprocessor,
     )
 
-    save_artifacts(
+    print_section("Export")
+    save_artefacts(
         model=model,
         preprocessor=preprocessor,
     )
 
-    print("\n=== Training Complete ===\n")
+    print()
+    print("[+] Regression Training completed")
 
 
 # ------------------------------------------------------------

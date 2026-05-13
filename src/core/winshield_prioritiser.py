@@ -42,16 +42,62 @@ RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 # ------------------------------------------------------------
+# DISPLAY HELPERS
+# ------------------------------------------------------------
+
+def print_section(title: str) -> None:
+    """Print a standard prioritiser section heading."""
+
+    print()
+    print(f"--- {title} ---")
+
+
+def relative_path(path: Path) -> str:
+    """Return a repository-relative path for clean output."""
+
+    try:
+        return str(path.relative_to(ROOT_DIR))
+    except ValueError:
+        return str(path)
+
+
+# ------------------------------------------------------------
 # DATA LOADING
 # ------------------------------------------------------------
 
 def load_runtime_data() -> pd.DataFrame:
     """Load validated runtime data produced by the runtime pipeline."""
 
-    if not RUNTIME_DATA_PATH.exists():
-        raise RuntimeError("Run the runtime pipeline first.")
+    if not RUNTIME_DATA_PATH.is_file():
+        raise RuntimeError("Validated runtime data missing. Run Rank Risk after Scan System.")
 
     return pd.read_csv(RUNTIME_DATA_PATH)
+
+
+# ------------------------------------------------------------
+# MODEL LOADING
+# ------------------------------------------------------------
+
+def validate_model_artefacts() -> None:
+    """Check that all required trained model artefacts exist."""
+
+    required_artefacts = [
+        REGRESSION_MODEL_PATH,
+        REGRESSION_PREPROCESSOR_PATH,
+        CLASSIFICATION_MODEL_PATH,
+        CLASSIFICATION_PREPROCESSOR_PATH,
+        CLUSTERING_MODEL_PATH,
+        CLUSTERING_PREPROCESSOR_PATH,
+    ]
+
+    missing_artefacts = [
+        artefact for artefact in required_artefacts
+        if not artefact.is_file()
+    ]
+
+    if missing_artefacts:
+        missing = ", ".join(relative_path(path) for path in missing_artefacts)
+        raise RuntimeError(f"Model artefacts missing: {missing}")
 
 
 # ------------------------------------------------------------
@@ -123,72 +169,6 @@ def get_kb_order(predictions: pd.DataFrame) -> pd.Index:
     )
 
 
-# ------------------------------------------------------------
-# CONSOLE OUTPUT
-# ------------------------------------------------------------
-
-def print_kb_breakdown(predictions: pd.DataFrame) -> None:
-    """Print CVE-level prediction details grouped by KB."""
-
-    sorted_predictions = predictions.sort_values("regression", ascending=False)
-    kb_order = get_kb_order(sorted_predictions)
-
-    for kb_id in kb_order:
-        kb_rows = sorted_predictions[sorted_predictions["kb_id"] == kb_id]
-
-        max_risk = kb_rows["regression"].max()
-        cluster = kb_rows["cluster"].mode()[0]
-        classification = kb_rows["classification"].mode()[0]
-
-        print(
-            f"{kb_id} | Cluster: {cluster} | "
-            f"Classification: {classification} | "
-            f"Max Risk: {max_risk:.2f} | "
-            f"CVEs: {len(kb_rows)}"
-        )
-
-        for _, row in kb_rows.iterrows():
-            print(
-                f"   ├ {row['cve_id']} | "
-                f"Cluster: {row['cluster']} | "
-                f"Classification: {row['classification']} | "
-                f"Risk: {row['regression']:.2f}"
-            )
-
-        print()
-
-
-def print_patch_recommendation(predictions: pd.DataFrame) -> None:
-    """Print KB-level remediation order based on maximum predicted risk."""
-
-    print("\n=== Patch Remediation Recommendation ===\n")
-
-    kb_scores = (
-        predictions.groupby("kb_id")["regression"]
-        .max()
-        .sort_values(ascending=False)
-    )
-
-    for index, (kb_id, score) in enumerate(kb_scores.items(), start=1):
-        kb_rows = predictions[predictions["kb_id"] == kb_id]
-
-        cluster = kb_rows["cluster"].mode()[0]
-        classification = kb_rows["classification"].mode()[0]
-
-        print(
-            f"{index}. {kb_id} | Cluster: {cluster} | "
-            f"Classification: {classification} | "
-            f"Risk: {score:.2f} | "
-            f"CVEs: {len(kb_rows)}"
-        )
-
-    print()
-
-
-# ------------------------------------------------------------
-# RESULT EXPORT
-# ------------------------------------------------------------
-
 def build_results(predictions: pd.DataFrame) -> list[dict[str, Any]]:
     """Build JSON-serialisable KB ranking results."""
 
@@ -200,10 +180,13 @@ def build_results(predictions: pd.DataFrame) -> list[dict[str, Any]]:
             "max_risk": float(kb_rows["regression"].max()),
             "classification": kb_rows["classification"].mode()[0],
             "cluster": int(kb_rows["cluster"].mode()[0]),
+            "cve_count": int(len(kb_rows)),
             "cves": [],
         }
 
-        for _, row in kb_rows.iterrows():
+        cve_rows = kb_rows.sort_values("regression", ascending=False)
+
+        for _, row in cve_rows.iterrows():
             entry["cves"].append(
                 {
                     "cve_id": row["cve_id"],
@@ -218,15 +201,86 @@ def build_results(predictions: pd.DataFrame) -> list[dict[str, Any]]:
     return sorted(output, key=lambda item: item["max_risk"], reverse=True)
 
 
+# ------------------------------------------------------------
+# CONSOLE OUTPUT
+# ------------------------------------------------------------
+
+def print_runtime_summary(runtime_data: pd.DataFrame) -> None:
+    """Print concise runtime dataset summary."""
+
+    print_section("Runtime Data")
+    print(f"[+] Input: {relative_path(RUNTIME_DATA_PATH)}")
+    print(f"[+] Runtime rows: {len(runtime_data)}")
+    print(f"[+] Unique KBs: {runtime_data['kb_id'].nunique()}")
+    print(f"[+] Unique CVEs: {runtime_data['cve_id'].nunique()}")
+
+
+def print_patch_recommendation(predictions: pd.DataFrame) -> None:
+    """Print KB-level remediation order based on maximum predicted risk."""
+
+    print_section("Ranked Remediation")
+
+    results = build_results(predictions)
+
+    if not results:
+        print("[!] No ranking results produced")
+        return
+
+    for index, entry in enumerate(results, start=1):
+        print(
+            f"{index}. {entry['kb_id']} | "
+            f"Risk: {entry['max_risk']:.2f} | "
+            f"Priority: {entry['classification']} | "
+            f"Cluster: {entry['cluster']} | "
+            f"CVEs: {entry['cve_count']}"
+        )
+
+
+def print_kb_breakdown(predictions: pd.DataFrame) -> None:
+    """Print CVE-level prediction details grouped by ranked KB."""
+
+    print_section("CVE Breakdown")
+
+    sorted_predictions = predictions.sort_values("regression", ascending=False)
+    kb_order = get_kb_order(sorted_predictions)
+
+    for kb_id in kb_order:
+        kb_rows = sorted_predictions[sorted_predictions["kb_id"] == kb_id]
+
+        max_risk = kb_rows["regression"].max()
+        cluster = kb_rows["cluster"].mode()[0]
+        classification = kb_rows["classification"].mode()[0]
+
+        print(
+            f"[+] {kb_id} | "
+            f"Risk: {max_risk:.2f} | "
+            f"Priority: {classification} | "
+            f"Cluster: {cluster} | "
+            f"CVEs: {len(kb_rows)}"
+        )
+
+        for _, row in kb_rows.iterrows():
+            print(
+                f"    - {row['cve_id']} | "
+                f"Risk: {row['regression']:.2f} | "
+                f"Priority: {row['classification']} | "
+                f"Cluster: {row['cluster']}"
+            )
+
+
+# ------------------------------------------------------------
+# RESULT EXPORT
+# ------------------------------------------------------------
+
 def save_results(predictions: pd.DataFrame) -> None:
     """Save KB ranking results to the results directory."""
 
     output = build_results(predictions)
 
     with RESULTS_PATH.open("w", encoding="utf-8") as file:
-        json.dump(output, file, indent=4)
+        json.dump(output, file, indent=2)
 
-    print(f"[+] Results saved to {RESULTS_PATH}")
+    print(f"[+] Results saved: {relative_path(RESULTS_PATH)}")
 
 
 # ------------------------------------------------------------
@@ -234,16 +288,34 @@ def save_results(predictions: pd.DataFrame) -> None:
 # ------------------------------------------------------------
 
 def main() -> None:
-    print("\n=== WinShield+ Prioritisation ===")
+    """Run the WinShield+ risk prioritisation workflow."""
+
+    print()
+    print("=" * 60)
+    print("WinShield+ - Risk Prioritisation")
+    print("=" * 60)
+
+    print_section("Pre-flight")
+    print("[*] Checking model artefacts")
+    validate_model_artefacts()
+    print("[+] Model artefacts ready")
 
     runtime_data = load_runtime_data()
-    predictions = predict_priorities(runtime_data)
+    print_runtime_summary(runtime_data)
 
-    print_kb_breakdown(predictions)
+    print_section("Inference")
+    print("[*] Applying trained models")
+    predictions = predict_priorities(runtime_data)
+    print("[+] Predictions generated")
+
     print_patch_recommendation(predictions)
+    print_kb_breakdown(predictions)
+
+    print_section("Export")
     save_results(predictions)
 
-    print("[+] Done.\n")
+    print()
+    print("[+] Risk Prioritisation completed")
 
 
 # ------------------------------------------------------------

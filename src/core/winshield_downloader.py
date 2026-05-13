@@ -74,6 +74,26 @@ class BaselineConstraints:
 
 
 # ------------------------------------------------------------
+# DISPLAY HELPERS
+# ------------------------------------------------------------
+
+def print_section(title: str) -> None:
+    """Print a standard downloader section heading."""
+
+    print()
+    print(f"--- {title} ---")
+
+
+def relative_path(path: Path) -> str:
+    """Return a repository-relative path for clean output."""
+
+    try:
+        return str(path.relative_to(ROOT_DIR))
+    except ValueError:
+        return str(path)
+
+
+# ------------------------------------------------------------
 # DATA LOADING
 # ------------------------------------------------------------
 
@@ -87,7 +107,7 @@ def find_latest_runtime_scan() -> Path:
     )
 
     if not scan_files:
-        raise RuntimeError("No runtime scans found. Run winshield_scanner.py first.")
+        raise RuntimeError("Runtime scan missing. Run Scan System first.")
 
     return scan_files[0]
 
@@ -96,7 +116,7 @@ def load_scan_result(path: Path) -> dict[str, Any]:
     """Load scanner output JSON from disk."""
 
     if not path.is_file():
-        raise RuntimeError(f"Scan result not found: {path}")
+        raise RuntimeError(f"Runtime scan not found: {relative_path(path)}")
 
     with path.open("r", encoding="utf-8") as file:
         return json.load(file)
@@ -151,6 +171,15 @@ def build_constraints(baseline: dict[str, Any]) -> BaselineConstraints:
         build_major=build_major,
         catalog_arch=catalog_arch,
     )
+
+
+def print_constraints(constraints: BaselineConstraints) -> None:
+    """Print concise catalog matching constraints."""
+
+    print(f"[+] Windows generation: {constraints.windows_gen or 'Unknown'}")
+    print(f"[+] Display version: {constraints.display_version or 'Unknown'}")
+    print(f"[+] Build major: {constraints.build_major or 'Unknown'}")
+    print(f"[+] Architecture: {constraints.catalog_arch}")
 
 
 # ------------------------------------------------------------
@@ -216,6 +245,33 @@ def build_missing_list(scan_result: dict[str, Any]) -> list[MissingKbItem]:
         )
 
     return missing_items
+
+
+def print_missing_items(missing_items: list[MissingKbItem]) -> None:
+    """Print selectable missing KB list."""
+
+    print_section("Missing KBs")
+
+    for index, item in enumerate(missing_items, start=1):
+        print(f"{index}) {item.kb_id} [{item.update_type}]")
+
+
+def select_missing_kb(missing_items: list[MissingKbItem]) -> MissingKbItem | None:
+    """Prompt the operator to select a missing KB."""
+
+    raw_selection = safe_input("\nSelect KB: ").strip()
+
+    if not raw_selection.isdigit():
+        print("[X] Invalid selection")
+        return None
+
+    selected_index = int(raw_selection)
+
+    if selected_index < 1 or selected_index > len(missing_items):
+        print("[X] Selection out of range")
+        return None
+
+    return missing_items[selected_index - 1]
 
 
 # ------------------------------------------------------------
@@ -351,13 +407,13 @@ def choose_best_candidate(
     ]
 
     if not accepted_candidates:
-        return None, "No candidate matched baseline constraints."
+        return None, "No candidate matched baseline constraints"
 
     accepted_candidates.sort(key=lambda item: item[0], reverse=True)
     best_score, best_candidate = accepted_candidates[0]
 
     if best_score < MIN_CONFIDENCE_SCORE:
-        return None, f"Ambiguous match below confidence threshold ({best_score})."
+        return None, f"Ambiguous match below confidence threshold ({best_score})"
 
     return best_candidate, None
 
@@ -427,52 +483,62 @@ def download_file(
 # ------------------------------------------------------------
 
 def main() -> int:
-    print("[*] Running WinShield+ downloader")
+    """Run the WinShield+ update downloader workflow."""
 
+    print()
+    print("=" * 60)
+    print("WinShield+ - Download Update")
+    print("=" * 60)
+
+    print_section("Runtime Scan")
     scan_path = find_latest_runtime_scan()
-    print(f"[*] Using scan result: {scan_path}")
+    print(f"[+] Runtime scan: {relative_path(scan_path)}")
 
     scan_result = load_scan_result(scan_path)
+
+    print_section("Catalog Constraints")
     constraints = build_constraints(scan_result.get("Baseline") or {})
+    print_constraints(constraints)
 
     missing_items = build_missing_list(scan_result)
     if not missing_items:
-        print("[+] No missing KBs")
+        print()
+        print("[+] No missing KBs detected")
         return 0
 
-    print("=== Missing KBs ===")
-    for index, item in enumerate(missing_items, start=1):
-        print(f"{index}) {item.kb_id} [{item.update_type}]")
-    print()
+    print_missing_items(missing_items)
 
-    raw_selection = safe_input("Select KB: ").strip()
-    if not raw_selection.isdigit():
-        print("[!] Invalid selection")
+    selected_item = select_missing_kb(missing_items)
+    if not selected_item:
         return 1
 
-    selected_index = int(raw_selection)
-    if selected_index < 1 or selected_index > len(missing_items):
-        print("[!] Selection out of range")
-        return 1
-
-    kb_id = missing_items[selected_index - 1].kb_id
     session = build_session()
 
-    print(f"[*] Searching catalog for {kb_id}")
-    html = fetch_text(session, SEARCH_URL, params={"q": kb_id})
+    print_section("Catalog Search")
+    print(f"[*] Searching Microsoft Update Catalog: {selected_item.kb_id}")
 
+    html = fetch_text(session, SEARCH_URL, params={"q": selected_item.kb_id})
     candidates = parse_search_candidates(html)
+
+    print(f"[+] Candidates found: {len(candidates)}")
+
     best_candidate, rejection_reason = choose_best_candidate(
         candidates=candidates,
-        kb_id=kb_id,
+        kb_id=selected_item.kb_id,
         constraints=constraints,
     )
 
     if not best_candidate:
-        print(f"[!] {rejection_reason}")
+        print(f"[X] {rejection_reason}")
         return 1
 
-    print(f"[+] Selected: {best_candidate.title}")
+    print(f"[+] Selected candidate: {best_candidate.title}")
+    print(f"[i] Classification: {best_candidate.classification}")
+    print(f"[i] Last updated: {best_candidate.last_updated}")
+    print(f"[i] Size: {best_candidate.size}")
+
+    print_section("Resolve Download")
+    print("[*] Resolving package URL")
 
     dialog_html = fetch_text(
         session,
@@ -482,8 +548,13 @@ def main() -> int:
 
     download_urls = extract_download_urls(dialog_html)
     if not download_urls:
-        print("[!] No download URL found")
+        print("[X] Download URL not found")
         return 1
+
+    print(f"[+] Download URLs found: {len(download_urls)}")
+
+    print_section("Download")
+    print("[*] Downloading selected package")
 
     output_path = download_file(
         session=session,
@@ -491,7 +562,10 @@ def main() -> int:
         output_dir=DOWNLOADS_DIR,
     )
 
-    print(f"[+] Downloaded to {output_path}")
+    print(f"[+] Package saved: {relative_path(output_path)}")
+
+    print()
+    print("[+] Download Update completed")
 
     return 0
 

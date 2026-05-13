@@ -2,14 +2,19 @@
 WinShield+ clustering model training.
 
 Trains a KMeans clustering model on validated WinShield+ vulnerability data.
-Uses the elbow method for exploratory cluster selection, then saves the final
-clustering model, preprocessor, and feature list for runtime prioritisation.
+Uses elbow analysis for cluster selection support, then saves the final
+clustering model, preprocessor, feature list, and chart artefacts for runtime
+prioritisation.
 """
 
 from pathlib import Path
 from typing import Any
 
 import joblib
+import matplotlib
+
+matplotlib.use("Agg")
+
 import matplotlib.pyplot as plt
 import pandas as pd
 from sklearn.cluster import KMeans
@@ -25,12 +30,17 @@ BASE_DIR = Path(__file__).resolve().parents[1]
 
 DATA_PATH = BASE_DIR / "data" / "dataset" / "validated_dataset.csv"
 MODELS_DIR = BASE_DIR / "models"
+RESULTS_DIR = BASE_DIR / "results"
 
 MODEL_PATH = MODELS_DIR / "clustering_model.joblib"
 PREPROCESSOR_PATH = MODELS_DIR / "clustering_preprocessor.joblib"
 FEATURES_PATH = MODELS_DIR / "clustering_features.joblib"
 
+ELBOW_CHART_PATH = RESULTS_DIR / "clustering_elbow_curve.png"
+SCATTER_CHART_PATH = RESULTS_DIR / "clustering_scatter.png"
+
 MODELS_DIR.mkdir(parents=True, exist_ok=True)
+RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 # ------------------------------------------------------------
@@ -43,6 +53,26 @@ OPTIMAL_K = 5
 
 
 # ------------------------------------------------------------
+# DISPLAY HELPERS
+# ------------------------------------------------------------
+
+def print_section(title: str) -> None:
+    """Print a standard clustering section heading."""
+
+    print()
+    print(f"--- {title} ---")
+
+
+def relative_path(path: Path) -> str:
+    """Return a repository-relative path for clean output."""
+
+    try:
+        return str(path.relative_to(BASE_DIR))
+    except ValueError:
+        return str(path)
+
+
+# ------------------------------------------------------------
 # DATA LOADING
 # ------------------------------------------------------------
 
@@ -50,7 +80,7 @@ def load_training_data() -> pd.DataFrame:
     """Load validated training data."""
 
     if not DATA_PATH.is_file():
-        raise RuntimeError("Validated dataset not found. Run data_pipeline.py first.")
+        raise RuntimeError("Validated dataset missing. Run Data Pipeline first.")
 
     return pd.read_csv(DATA_PATH)
 
@@ -104,56 +134,6 @@ def build_preprocessor(features: pd.DataFrame) -> ColumnTransformer:
 
 
 # ------------------------------------------------------------
-# REPORTING
-# ------------------------------------------------------------
-
-def print_feature_summary(features: pd.DataFrame) -> None:
-    """Print numeric and categorical feature groups."""
-
-    numeric_features = features.select_dtypes(include=["int64", "float64"]).columns
-    categorical_features = features.select_dtypes(include=["object", "string"]).columns
-
-    print("\nNumeric features:", list(numeric_features))
-    print("Categorical features:", list(categorical_features))
-
-
-def print_processed_preview(
-    processed_features: Any,
-    preprocessor: ColumnTransformer,
-    rows: int = 20,
-) -> None:
-    """Print a small preview of the processed training matrix."""
-
-    feature_names = preprocessor.get_feature_names_out().astype(str)
-
-    if hasattr(processed_features, "toarray"):
-        preview_data = processed_features[:rows].toarray()
-    else:
-        preview_data = processed_features[:rows]
-
-    preview = pd.DataFrame(preview_data, columns=feature_names)
-
-    print("\n=== Processed Dataset Preview (Top 20) ===")
-    print(preview.head(rows))
-
-
-def print_cluster_summary(training_data: pd.DataFrame) -> None:
-    """Print cluster distribution and basic cluster interpretation metrics."""
-
-    print("\n=== Cluster Distribution ===")
-    print(training_data["cluster"].value_counts())
-
-    print("\n=== Cluster vs Risk Score ===")
-    print(training_data.groupby("cluster")["risk_score"].mean())
-
-    print("\n=== Cluster vs CVSS ===")
-    print(training_data.groupby("cluster")["cvss_score"].mean())
-
-    print("\n=== Cluster vs Exploited ===")
-    print(training_data.groupby("cluster")["exploited_flag"].mean())
-
-
-# ------------------------------------------------------------
 # ELBOW ANALYSIS
 # ------------------------------------------------------------
 
@@ -169,24 +149,27 @@ def calculate_wcss(processed_features: Any, max_k: int = MAX_K) -> list[float]:
         )
 
         model.fit(processed_features)
-        wcss.append(model.inertia_)
+        wcss.append(float(model.inertia_))
 
     return wcss
 
 
-def plot_elbow_curve(wcss: list[float]) -> None:
-    """Plot the elbow curve for visual K selection."""
+def save_elbow_curve(wcss: list[float]) -> None:
+    """Save the elbow curve without opening a GUI window."""
 
     plt.figure()
     plt.plot(range(1, len(wcss) + 1), wcss, marker="o")
     plt.title("Elbow Method")
     plt.xlabel("Number of Clusters (K)")
     plt.ylabel("WCSS")
-    plt.show()
+    plt.savefig(ELBOW_CHART_PATH, bbox_inches="tight")
+    plt.close()
+
+    print(f"[+] Elbow chart saved: {relative_path(ELBOW_CHART_PATH)}")
 
 
-def plot_cluster_scatter(training_data: pd.DataFrame) -> None:
-    """Plot CVSS score against risk score using cluster assignments."""
+def save_cluster_scatter(training_data: pd.DataFrame) -> None:
+    """Save CVSS score against risk score using cluster assignments."""
 
     plt.figure()
     plt.scatter(
@@ -198,7 +181,10 @@ def plot_cluster_scatter(training_data: pd.DataFrame) -> None:
     plt.title("CVSS vs Risk Score")
     plt.xlabel("CVSS Score")
     plt.ylabel("Risk Score")
-    plt.show()
+    plt.savefig(SCATTER_CHART_PATH, bbox_inches="tight")
+    plt.close()
+
+    print(f"[+] Cluster chart saved: {relative_path(SCATTER_CHART_PATH)}")
 
 
 # ------------------------------------------------------------
@@ -219,6 +205,23 @@ def train_model(processed_features: Any, cluster_count: int = OPTIMAL_K) -> KMea
 
 
 # ------------------------------------------------------------
+# REPORTING
+# ------------------------------------------------------------
+
+def print_cluster_summary(training_data: pd.DataFrame) -> None:
+    """Print concise cluster distribution and risk summary."""
+
+    distribution = training_data["cluster"].value_counts().sort_index()
+    average_risk = training_data.groupby("cluster")["risk_score"].mean().round(2)
+
+    print(f"[+] Clusters created: {len(distribution)}")
+
+    for cluster_id, count in distribution.items():
+        mean_risk = average_risk.get(cluster_id, 0)
+        print(f"[i] Cluster {cluster_id}: {count} rows | Avg risk: {mean_risk}")
+
+
+# ------------------------------------------------------------
 # MODEL EXPORT
 # ------------------------------------------------------------
 
@@ -233,9 +236,9 @@ def save_artifacts(
     joblib.dump(preprocessor, PREPROCESSOR_PATH)
     joblib.dump(features.columns.tolist(), FEATURES_PATH)
 
-    print("\n[+] Model saved to:", MODEL_PATH)
-    print("[+] Preprocessor saved to:", PREPROCESSOR_PATH)
-    print("[+] Feature list saved to:", FEATURES_PATH)
+    print(f"[+] Model saved: {relative_path(MODEL_PATH)}")
+    print(f"[+] Preprocessor saved: {relative_path(PREPROCESSOR_PATH)}")
+    print(f"[+] Feature list saved: {relative_path(FEATURES_PATH)}")
 
 
 # ------------------------------------------------------------
@@ -243,40 +246,39 @@ def save_artifacts(
 # ------------------------------------------------------------
 
 def main() -> None:
-    print("\n=== Clustering Training ===\n")
+    """Run clustering model training."""
 
+    print()
+    print("=" * 60)
+    print("WinShield+ - Clustering Training")
+    print("=" * 60)
+
+    print_section("Load Data")
     training_data = load_training_data()
     training_data = add_exploitation_flag(training_data)
 
-    print("Dataset shape:", training_data.shape)
+    print(f"[+] Dataset rows: {len(training_data)}")
+    print(f"[+] Dataset columns: {len(training_data.columns)}")
 
-    print("\nExploitation flag distribution:")
-    print(training_data["exploited_flag"].value_counts())
-
+    print_section("Prepare Features")
     features = build_features(training_data)
 
-    print("\nFeature shape:", features.shape)
-    print_feature_summary(features)
+    numeric_features = features.select_dtypes(include=["int64", "float64"]).columns
+    categorical_features = features.select_dtypes(include=["object", "string"]).columns
+
+    print(f"[+] Feature columns: {len(features.columns)}")
+    print(f"[i] Numeric features: {len(numeric_features)}")
+    print(f"[i] Categorical features: {len(categorical_features)}")
 
     preprocessor = build_preprocessor(features)
     processed_features = preprocessor.fit_transform(features)
 
-    print("\nProcessed shape:", processed_features.shape)
-
-    print_processed_preview(
-        processed_features=processed_features,
-        preprocessor=preprocessor,
-    )
-
+    print_section("Train Model")
+    print(f"[*] Running elbow analysis: K=1 to K={MAX_K}")
     wcss = calculate_wcss(processed_features)
+    save_elbow_curve(wcss)
 
-    print("\nWCSS values:")
-    print(wcss)
-
-    plot_elbow_curve(wcss)
-
-    print(f"\nSelected K = {OPTIMAL_K}")
-
+    print(f"[*] Training KMeans model: K={OPTIMAL_K}")
     model = train_model(
         processed_features=processed_features,
         cluster_count=OPTIMAL_K,
@@ -285,15 +287,17 @@ def main() -> None:
     training_data["cluster"] = model.predict(processed_features)
 
     print_cluster_summary(training_data)
-    plot_cluster_scatter(training_data)
+    save_cluster_scatter(training_data)
 
+    print_section("Export")
     save_artifacts(
         model=model,
         preprocessor=preprocessor,
         features=features,
     )
 
-    print("\n=== Training Complete ===\n")
+    print()
+    print("[+] Clustering Training completed")
 
 
 # ------------------------------------------------------------

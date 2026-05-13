@@ -28,6 +28,26 @@ GENERATED_DIRS = [
 
 
 # ------------------------------------------------------------
+# DISPLAY HELPERS
+# ------------------------------------------------------------
+
+def print_section(title: str) -> None:
+    """Print a standard cleanup section heading."""
+
+    print()
+    print(f"--- {title} ---")
+
+
+def relative_path(path: Path) -> str:
+    """Return a repository-relative path for clean output."""
+
+    try:
+        return str(path.relative_to(ROOT_DIR))
+    except ValueError:
+        return str(path)
+
+
+# ------------------------------------------------------------
 # CLEANUP
 # ------------------------------------------------------------
 
@@ -36,30 +56,34 @@ def remove_directory(path: Path) -> None:
 
     if path.exists():
         shutil.rmtree(path)
-        print(f"[+] Removed: {path}")
+        print(f"[+] Removed: {relative_path(path)}")
     else:
-        print(f"[i] Already clean: {path}")
+        print(f"[i] Already clean: {relative_path(path)}")
 
 
 def recreate_directory(path: Path) -> None:
     """Recreate an empty generated directory."""
 
     path.mkdir(parents=True, exist_ok=True)
-    print(f"[+] Recreated: {path}")
+    print(f"[+] Recreated: {relative_path(path)}")
 
 
 def confirm_cleanup() -> bool:
     """Ask the operator to confirm cleanup before deleting generated files."""
 
-    print("This will remove generated WinShield+ artefacts:")
+    print_section("Confirmation")
+
+    print("[!] Generated artefacts will be removed")
+    print("[i] Directories selected:")
+
     for path in GENERATED_DIRS:
-        print(f"  - {path}")
+        print(f"    - {relative_path(path)}")
 
     print()
-    print(f"This will preserve: {SCANS_DIR}")
+    print(f"[+] Preserved: {relative_path(SCANS_DIR)}")
     print()
 
-    response = input("Continue? Type YES to confirm: ").strip()
+    response = input("Type YES to continue: ").strip()
 
     return response == "YES"
 
@@ -71,25 +95,35 @@ def confirm_cleanup() -> bool:
 def main() -> int:
     """Run the WinShield+ artefact cleanup workflow."""
 
-    print("\n=== WinShield+ Artefact Cleanup ===\n")
+    print()
+    print("=" * 60)
+    print("WinShield+ - Clear Artefacts")
+    print("=" * 60)
+
+    print_section("Pre-flight")
+    print("[*] Checking source training scans")
 
     if not SCANS_DIR.exists():
-        print(f"[!] Warning: scans directory not found: {SCANS_DIR}")
-        print("[!] Cleanup stopped to avoid removing data unexpectedly.")
+        print(f"[X] Source training scans missing: {relative_path(SCANS_DIR)}")
+        print("[i] Cleanup stopped to avoid removing data unexpectedly")
         return 1
 
+    print(f"[+] Source training scans preserved: {relative_path(SCANS_DIR)}")
+
     if not confirm_cleanup():
-        print("[i] Cleanup cancelled.")
+        print()
+        print("[i] Clear Artefacts cancelled")
         return 0
+
+    print_section("Cleanup")
 
     for path in GENERATED_DIRS:
         remove_directory(path)
         recreate_directory(path)
 
     print()
-    print("[+] Cleanup complete.")
-    print("[+] Source training scans preserved.")
-    print()
+    print("[+] Clear Artefacts completed")
+    print("[+] Source training scans preserved")
 
     return 0
 
