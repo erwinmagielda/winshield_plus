@@ -1,285 +1,317 @@
 """
-WinShield+ model pipeline.
+WinShield+ clustering model training.
 
-Runs the model training workflow:
-1. Train the regression model.
-2. Train the classification model.
-3. Train the clustering model.
-
-Requires data/dataset/validated_dataset.csv to already exist.
-Exports a model pipeline summary to results/model_pipeline_summary.json.
+Trains a KMeans clustering model on validated WinShield+ vulnerability data.
+Uses the elbow method for exploratory cluster selection, then saves the final
+clustering model, preprocessor, feature list, and chart artefacts for runtime
+prioritisation.
 """
 
-import json
-import subprocess
-import sys
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+import joblib
+import matplotlib
+
+matplotlib.use("Agg")
+
+import matplotlib.pyplot as plt
+import pandas as pd
+from sklearn.cluster import KMeans
+from sklearn.compose import ColumnTransformer
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 
 # ------------------------------------------------------------
 # PATHS
 # ------------------------------------------------------------
 
-SCRIPT_DIR = Path(__file__).resolve().parent
-ROOT_DIR = SCRIPT_DIR.parents[0]
-RESULTS_DIR = ROOT_DIR / "results"
-MODELS_DIR = ROOT_DIR / "models"
+BASE_DIR = Path(__file__).resolve().parents[1]
 
-VALIDATED_DATASET_PATH = ROOT_DIR / "data" / "dataset" / "validated_dataset.csv"
+DATA_PATH = BASE_DIR / "data" / "dataset" / "validated_dataset.csv"
+MODELS_DIR = BASE_DIR / "models"
+RESULTS_DIR = BASE_DIR / "results"
 
-REGRESSION_SCRIPT = SCRIPT_DIR / "train_regression.py"
-CLASSIFICATION_SCRIPT = SCRIPT_DIR / "train_classification.py"
-CLUSTERING_SCRIPT = SCRIPT_DIR / "train_clustering.py"
+MODEL_PATH = MODELS_DIR / "clustering_model.joblib"
+PREPROCESSOR_PATH = MODELS_DIR / "clustering_preprocessor.joblib"
+FEATURES_PATH = MODELS_DIR / "clustering_features.joblib"
 
-SUMMARY_PATH = RESULTS_DIR / "model_pipeline_summary.json"
+ELBOW_CHART_PATH = RESULTS_DIR / "clustering_elbow_curve.png"
+SCATTER_CHART_PATH = RESULTS_DIR / "clustering_scatter.png"
 
-PYTHON_EXE = sys.executable
-
+MODELS_DIR.mkdir(parents=True, exist_ok=True)
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 # ------------------------------------------------------------
-# PIPELINE STAGES
+# CONFIGURATION
 # ------------------------------------------------------------
 
-STAGES: list[tuple[str, Path, list[str]]] = [
-    (
-        "Train Regression Model",
-        REGRESSION_SCRIPT,
-        [],
-    ),
-    (
-        "Train Classification Model",
-        CLASSIFICATION_SCRIPT,
-        [],
-    ),
-    (
-        "Train Clustering Model",
-        CLUSTERING_SCRIPT,
-        [],
-    ),
-]
-
-EXPECTED_ARTIFACTS: dict[str, list[Path]] = {
-    "regression": [
-        MODELS_DIR / "regression_model.joblib",
-        MODELS_DIR / "regression_preprocessor.joblib",
-    ],
-    "classification": [
-        MODELS_DIR / "classification_model.joblib",
-        MODELS_DIR / "classification_preprocessor.joblib",
-    ],
-    "clustering": [
-        MODELS_DIR / "clustering_model.joblib",
-        MODELS_DIR / "clustering_preprocessor.joblib",
-        MODELS_DIR / "clustering_features.joblib",
-    ],
-}
+RANDOM_STATE = 2137
+MAX_K = 10
+OPTIMAL_K = 5
 
 
 # ------------------------------------------------------------
-# SUMMARY HELPERS
+# DATA LOADING
 # ------------------------------------------------------------
 
-def utc_timestamp() -> str:
-    """Return a compact UTC timestamp."""
+def load_training_data() -> pd.DataFrame:
+    """Load validated training data."""
 
-    return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    if not DATA_PATH.is_file():
+        raise RuntimeError("Validated dataset not found. Run data_pipeline.py first.")
 
-
-def relative_path(path: Path) -> str:
-    """Return a project-relative path for summary output."""
-
-    return str(path.relative_to(ROOT_DIR))
-
-
-def build_artifact_summary() -> dict[str, Any]:
-    """Summarise expected model artifacts after training."""
-
-    artifact_summary: dict[str, Any] = {}
-
-    for group, paths in EXPECTED_ARTIFACTS.items():
-        artifact_summary[group] = []
-
-        for path in paths:
-            artifact_summary[group].append(
-                {
-                    "path": relative_path(path),
-                    "exists": path.is_file(),
-                    "size_bytes": path.stat().st_size if path.is_file() else None,
-                }
-            )
-
-    return artifact_summary
-
-
-def save_model_pipeline_summary(summary: dict[str, Any]) -> None:
-    """Save model pipeline summary JSON."""
-
-    with SUMMARY_PATH.open("w", encoding="utf-8") as file:
-        json.dump(summary, file, indent=2)
-
-    print(f"[+] Model pipeline summary saved to {SUMMARY_PATH}")
+    return pd.read_csv(DATA_PATH)
 
 
 # ------------------------------------------------------------
-# PRE-FLIGHT CHECKS
+# FEATURE PREPARATION
 # ------------------------------------------------------------
 
-def validate_required_inputs() -> tuple[bool, str | None]:
-    """Check that the validated training dataset exists before model training."""
+def add_exploitation_flag(dataframe: pd.DataFrame) -> pd.DataFrame:
+    """Create a binary exploitation flag from MSRC exploitation text."""
 
-    if not VALIDATED_DATASET_PATH.is_file():
-        return (
-            False,
-            "Validated dataset not found. Run training/data_pipeline.py --mode training first.",
-        )
+    training_data = dataframe.copy()
 
-    return True, None
+    training_data["exploited_flag"] = training_data["exploitation"].apply(
+        lambda value: 1 if "Exploited:Yes" in str(value) else 0
+    )
+
+    return training_data
+
+
+def build_features(training_data: pd.DataFrame) -> pd.DataFrame:
+    """Build clustering features from validated training data."""
+
+    drop_columns = [
+        "risk_score",
+        "priority_label",
+        "kb_id",
+        "cve_id",
+        "month",
+        "published_date",
+        "exploitation",
+    ]
+
+    return training_data.drop(columns=drop_columns)
+
+
+def build_preprocessor(features: pd.DataFrame) -> ColumnTransformer:
+    """Build preprocessing transformer for numeric and categorical features."""
+
+    numeric_features = features.select_dtypes(include=["int64", "float64"]).columns
+    categorical_features = features.select_dtypes(
+        include=["object", "string"]
+    ).columns
+
+    return ColumnTransformer(
+        [
+            ("num", StandardScaler(), numeric_features),
+            ("cat", OneHotEncoder(handle_unknown="ignore"), categorical_features),
+        ]
+    )
 
 
 # ------------------------------------------------------------
-# STAGE EXECUTION
+# REPORTING
 # ------------------------------------------------------------
 
-def run_stage(label: str, script_path: Path, args: list[str]) -> dict[str, Any]:
-    """Run a pipeline stage and return a stage summary."""
+def print_feature_summary(features: pd.DataFrame) -> None:
+    """Print numeric and categorical feature groups."""
 
-    stage_summary: dict[str, Any] = {
-        "label": label,
-        "script": relative_path(script_path),
-        "args": args,
-        "started_at_utc": utc_timestamp(),
-        "finished_at_utc": None,
-        "exit_code": None,
-        "status": "running",
-    }
+    numeric_features = features.select_dtypes(include=["int64", "float64"]).columns
+    categorical_features = features.select_dtypes(include=["object", "string"]).columns
 
-    if not script_path.is_file():
-        print(f"[X] Stage script not found: {script_path}")
+    print("\nNumeric features:", list(numeric_features))
+    print("Categorical features:", list(categorical_features))
 
-        stage_summary["finished_at_utc"] = utc_timestamp()
-        stage_summary["exit_code"] = 1
-        stage_summary["status"] = "missing_script"
 
-        return stage_summary
+def print_processed_preview(
+    processed_features: Any,
+    preprocessor: ColumnTransformer,
+    rows: int = 20,
+) -> None:
+    """Print a small preview of the processed training matrix."""
 
-    print()
-    print("=" * 70)
-    print(f"[*] {label}")
-    print("=" * 70)
+    feature_names = preprocessor.get_feature_names_out().astype(str)
 
-    try:
-        result = subprocess.run(
-            [PYTHON_EXE, str(script_path), *args],
-            cwd=ROOT_DIR,
-            check=False,
-        )
-
-        stage_summary["exit_code"] = int(result.returncode or 0)
-
-    except KeyboardInterrupt:
-        print("\n[!] Pipeline cancelled by user.")
-
-        stage_summary["exit_code"] = 130
-        stage_summary["status"] = "cancelled"
-        stage_summary["finished_at_utc"] = utc_timestamp()
-
-        return stage_summary
-
-    except Exception as exc:
-        print(f"[X] Failed to run stage: {exc}")
-
-        stage_summary["exit_code"] = 1
-        stage_summary["status"] = "failed_to_launch"
-        stage_summary["error"] = str(exc)
-        stage_summary["finished_at_utc"] = utc_timestamp()
-
-        return stage_summary
-
-    stage_summary["finished_at_utc"] = utc_timestamp()
-
-    if stage_summary["exit_code"] == 0:
-        stage_summary["status"] = "completed"
-        print(f"[+] {label} completed successfully")
+    if hasattr(processed_features, "toarray"):
+        preview_data = processed_features[:rows].toarray()
     else:
-        stage_summary["status"] = "failed"
-        print(f"[X] Stage failed with exit code {stage_summary['exit_code']}")
+        preview_data = processed_features[:rows]
 
-    return stage_summary
+    preview = pd.DataFrame(preview_data, columns=feature_names)
+
+    print("\n=== Processed Dataset Preview (Top 20) ===")
+    print(preview.head(rows))
+
+
+def print_cluster_summary(training_data: pd.DataFrame) -> None:
+    """Print cluster distribution and basic cluster interpretation metrics."""
+
+    print("\n=== Cluster Distribution ===")
+    print(training_data["cluster"].value_counts())
+
+    print("\n=== Cluster vs Risk Score ===")
+    print(training_data.groupby("cluster")["risk_score"].mean())
+
+    print("\n=== Cluster vs CVSS ===")
+    print(training_data.groupby("cluster")["cvss_score"].mean())
+
+    print("\n=== Cluster vs Exploited ===")
+    print(training_data.groupby("cluster")["exploited_flag"].mean())
+
+
+# ------------------------------------------------------------
+# ELBOW ANALYSIS
+# ------------------------------------------------------------
+
+def calculate_wcss(processed_features: Any, max_k: int = MAX_K) -> list[float]:
+    """Calculate WCSS values for KMeans elbow analysis."""
+
+    wcss: list[float] = []
+
+    for cluster_count in range(1, max_k + 1):
+        model = KMeans(
+            n_clusters=cluster_count,
+            random_state=RANDOM_STATE,
+        )
+
+        model.fit(processed_features)
+        wcss.append(float(model.inertia_))
+
+    return wcss
+
+
+def plot_elbow_curve(wcss: list[float]) -> None:
+    """Save the elbow curve without opening a GUI window."""
+
+    plt.figure()
+    plt.plot(range(1, len(wcss) + 1), wcss, marker="o")
+    plt.title("Elbow Method")
+    plt.xlabel("Number of Clusters (K)")
+    plt.ylabel("WCSS")
+    plt.savefig(ELBOW_CHART_PATH, bbox_inches="tight")
+    plt.close()
+
+    print("[+] Elbow chart saved to:", ELBOW_CHART_PATH)
+
+
+def plot_cluster_scatter(training_data: pd.DataFrame) -> None:
+    """Save CVSS score against risk score using cluster assignments."""
+
+    plt.figure()
+    plt.scatter(
+        training_data["cvss_score"],
+        training_data["risk_score"],
+        c=training_data["cluster"],
+        alpha=0.5,
+    )
+    plt.title("CVSS vs Risk Score")
+    plt.xlabel("CVSS Score")
+    plt.ylabel("Risk Score")
+    plt.savefig(SCATTER_CHART_PATH, bbox_inches="tight")
+    plt.close()
+
+    print("[+] Cluster scatter chart saved to:", SCATTER_CHART_PATH)
+
+
+# ------------------------------------------------------------
+# MODEL TRAINING
+# ------------------------------------------------------------
+
+def train_model(processed_features: Any, cluster_count: int = OPTIMAL_K) -> KMeans:
+    """Train the final KMeans clustering model."""
+
+    model = KMeans(
+        n_clusters=cluster_count,
+        random_state=RANDOM_STATE,
+    )
+
+    model.fit(processed_features)
+
+    return model
+
+
+# ------------------------------------------------------------
+# MODEL EXPORT
+# ------------------------------------------------------------
+
+def save_artifacts(
+    model: KMeans,
+    preprocessor: ColumnTransformer,
+    features: pd.DataFrame,
+) -> None:
+    """Save trained clustering model, preprocessor, and feature list."""
+
+    joblib.dump(model, MODEL_PATH)
+    joblib.dump(preprocessor, PREPROCESSOR_PATH)
+    joblib.dump(features.columns.tolist(), FEATURES_PATH)
+
+    print("\n[+] Model saved to:", MODEL_PATH)
+    print("[+] Preprocessor saved to:", PREPROCESSOR_PATH)
+    print("[+] Feature list saved to:", FEATURES_PATH)
 
 
 # ------------------------------------------------------------
 # MAIN WORKFLOW
 # ------------------------------------------------------------
 
-def main() -> int:
-    """Run the WinShield+ model training pipeline."""
+def main() -> None:
+    """Run clustering model training."""
 
-    print("\n=== WinShield+ Model Pipeline ===")
+    print("\n=== Clustering Training ===\n")
 
-    summary: dict[str, Any] = {
-        "pipeline": "model_pipeline",
-        "timestamp_utc": utc_timestamp(),
-        "status": "running",
-        "input": {
-            "validated_dataset": {
-                "path": relative_path(VALIDATED_DATASET_PATH),
-                "exists": VALIDATED_DATASET_PATH.is_file(),
-                "size_bytes": (
-                    VALIDATED_DATASET_PATH.stat().st_size
-                    if VALIDATED_DATASET_PATH.is_file()
-                    else None
-                ),
-            }
-        },
-        "stages": [],
-        "artifacts": {},
-    }
+    training_data = load_training_data()
+    training_data = add_exploitation_flag(training_data)
 
-    inputs_valid, error_message = validate_required_inputs()
+    print("Dataset shape:", training_data.shape)
 
-    if not inputs_valid:
-        print(f"[X] {error_message}")
+    print("\nExploitation flag distribution:")
+    print(training_data["exploited_flag"].value_counts())
 
-        summary["status"] = "failed"
-        summary["error"] = error_message
-        summary["artifacts"] = build_artifact_summary()
-        save_model_pipeline_summary(summary)
+    features = build_features(training_data)
 
-        return 1
+    print("\nFeature shape:", features.shape)
+    print_feature_summary(features)
 
-    for label, script_path, args in STAGES:
-        stage_summary = run_stage(
-            label=label,
-            script_path=script_path,
-            args=args,
-        )
+    preprocessor = build_preprocessor(features)
+    processed_features = preprocessor.fit_transform(features)
 
-        summary["stages"].append(stage_summary)
+    print("\nProcessed shape:", processed_features.shape)
 
-        if stage_summary["exit_code"] != 0:
-            summary["status"] = "failed"
-            summary["artifacts"] = build_artifact_summary()
-            save_model_pipeline_summary(summary)
+    print_processed_preview(
+        processed_features=processed_features,
+        preprocessor=preprocessor,
+    )
 
-            print("\n[X] Model pipeline stopped.")
-            return int(stage_summary["exit_code"])
+    wcss = calculate_wcss(processed_features)
 
-    summary["status"] = "completed"
-    summary["artifacts"] = build_artifact_summary()
-    save_model_pipeline_summary(summary)
+    print("\nWCSS values:")
+    print(wcss)
 
-    print()
-    print("=== Model Pipeline Complete ===")
-    print("[+] Regression model trained")
-    print("[+] Classification model trained")
-    print("[+] Clustering model trained")
-    print()
+    plot_elbow_curve(wcss)
 
-    return 0
+    print(f"\nSelected K = {OPTIMAL_K}")
+
+    model = train_model(
+        processed_features=processed_features,
+        cluster_count=OPTIMAL_K,
+    )
+
+    training_data["cluster"] = model.predict(processed_features)
+
+    print_cluster_summary(training_data)
+    plot_cluster_scatter(training_data)
+
+    save_artifacts(
+        model=model,
+        preprocessor=preprocessor,
+        features=features,
+    )
+
+    print("\n=== Training Complete ===\n")
 
 
 # ------------------------------------------------------------
@@ -287,4 +319,4 @@ def main() -> int:
 # ------------------------------------------------------------
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    main()
