@@ -94,22 +94,42 @@ The CVE breakdown preserves the evidence behind the ranking. A KB can be priorit
 ## Architecture
 
 ```text
-src/powershell/
-  winshield_baseline.ps1     -> OS baseline, build, architecture, LCU context, MSRC product hint
-  winshield_inventory.ps1    -> installed KB collection through Get-HotFix and Get-WindowsPackage
-  winshield_adapter.ps1      -> MSRC CVRF advisory collection and KB/CVE mapping
-  winshield_metadata.ps1     -> CVSS, severity, exploit, vector, and publication metadata
-
-src/core/
-  winshield_master.py        -> operator menu and orchestration
-  winshield_scanner.py       -> scan, correlate, classify patch state
-  winshield_prioritiser.py   -> load models and rank missing KBs
-  winshield_downloader.py    -> optional Microsoft Update Catalog package download
-  winshield_installer.py     -> optional WUSA/DISM package installation
-
-training/
-  data_pipeline.py           -> flatten, enrich, label, validate
-  model_pipeline.py          -> train regression, classification, clustering
+src/
+├── powershell/
+│   ├── winshield_baseline.ps1
+│   │   Collects OS baseline, build, architecture, LCU context, and MSRC product hint.
+│   │
+│   ├── winshield_inventory.ps1
+│   │   Enumerates installed KBs through Get-HotFix and Get-WindowsPackage.
+│   │
+│   ├── winshield_adapter.ps1
+│   │   Collects MSRC CVRF advisories and maps KB updates to affected CVEs.
+│   │
+│   └── winshield_metadata.ps1
+│       Enriches CVEs with CVSS, severity, exploitability, vector, and publication metadata.
+│
+├── core/
+│   ├── winshield_master.py
+│   │   Provides the operator menu and controls the main workflow.
+│   │
+│   ├── winshield_scanner.py
+│   │   Runs patch-state scanning, KB/CVE correlation, and missing update classification.
+│   │
+│   ├── winshield_prioritiser.py
+│   │   Loads trained models and ranks missing KBs by predicted CVE risk.
+│   │
+│   ├── winshield_downloader.py
+│   │   Optionally downloads selected packages from the Microsoft Update Catalog.
+│   │
+│   └── winshield_installer.py
+│       Optionally installs selected packages through WUSA or DISM.
+│
+└── training/
+    ├── data_pipeline.py
+    │   Converts scan JSON into model-ready data through flattening, enrichment, labelling, and validation.
+    │
+    └── model_pipeline.py
+        Trains regression, classification, and clustering models, then saves reusable model artefacts.
 ```
 
 The project is intentionally split into collection, processing, modelling, and optional remediation. Each layer has a defined role and writes structured artefacts that can be reviewed independently.
@@ -118,11 +138,11 @@ The project is intentionally split into collection, processing, modelling, and o
 
 WinShield+ uses three complementary approaches to solve the same problem: turning missing patches into useful security decisions.
 
-| Approach | Why It Exists | Implementation |
+| Approach | Purpose | Implementation |
 |---|---|---|
-| Exposure discovery | Find the real attack surface created by missing updates | Map missing KBs to CVEs through MSRC advisory data and supersedence-aware scan logic |
-| Data preparation | Make raw scan output safe for modelling | Flatten nested JSON, enrich CVEs, parse CVSS vectors, remove incomplete rows |
-| Risk prioritisation | Decide what should be reviewed first | Predict CVE risk, assign priority labels, group similar vulnerabilities, then aggregate results by KB |
+| Attack Surface Discovery | Identify the vulnerability exposure created by missing Windows updates. | Correlates missing KBs with MSRC advisory data, affected CVEs, and supersedence relationships to show what remains exposed. |
+| Model-Ready Data Preparation | Convert raw patch-state evidence into clean, reliable data for analysis. | Transforms nested scan JSON into structured datasets, enriches CVEs with CVSS/vector metadata, and validates required fields before modelling. |
+| Risk-Based Prioritisation | Help the operator decide which missing updates should be reviewed first. | Scores CVEs, assigns priority labels, clusters similar vulnerability records, and aggregates the highest-risk findings back to KB-level remediation order. |
 
 This keeps the project grounded. The scanner does not pretend every CVE is exploitable. It exposes patch-linked vulnerability coverage, then provides a repeatable way to prioritise review.
 
