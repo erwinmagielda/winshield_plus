@@ -13,7 +13,7 @@ Windows Update can tell a machine how to stay current. It does not give an analy
 That creates a practical triage problem:
 
 ```text
-Missing KBs -> many CVEs -> mixed severity -> unclear remediation order
+Missing KBs -> Many CVEs -> Mixed Severity -> Unclear Remediation Order
 ```
 
 WinShield+ focuses on that gap. The important output is not only that a patch is missing. The important output is which CVEs are exposed because that patch is missing, how those CVEs compare, and which KB should be reviewed first.
@@ -23,7 +23,7 @@ WinShield+ focuses on that gap. The important output is not only that a patch is
 WinShield+ turns local patch state into a ranked vulnerability management workflow.
 
 ```text
-Harvest Host Data -> Build Scan JSON -> Enrich CVEs -> Train Models -> Scan Runtime Host -> Rank Missing KBs
+Harvest Host Data -> Build Scan JSON -> Enrich CVEs -> Build Dataset -> Train Models -> Scan Runtime Host -> Rank Missing KBs
 ```
 
 The scanner discovers patch-state exposure. The data pipeline turns nested scan output into model-ready rows. The prioritiser scores CVEs and aggregates them back to the KB level, because Windows remediation happens through updates, not isolated CVE fixes.
@@ -32,62 +32,62 @@ The scanner discovers patch-state exposure. The data pipeline turns nested scan 
 
 | Area | Demonstrated Through |
 |---|---|
-| Windows administration | KB inventory, cumulative update handling, PowerShell collection, admin-aware scanning |
-| Vulnerability management | CVE mapping, MSRC advisory correlation, missing patch exposure analysis |
-| Security operations | Prioritised remediation output, evidence-based triage, analyst-readable results |
-| Data engineering | JSON artefacts, CSV datasets, flattening, enrichment, validation, reproducible stages |
-| Machine learning | Regression, classification, clustering, saved model artefacts, runtime inference |
-| Secure coding approach | Modular boundaries, explicit execution paths, validation before modelling, operator-controlled remediation |
+| Windows Administration | KB inventory, cumulative update handling, PowerShell collection, admin-aware scanning |
+| Vulnerability Management | CVE mapping, MSRC advisory correlation, missing patch exposure analysis |
+| Security Operations | Prioritised remediation output, evidence-based triage, analyst-readable results |
+| Data Engineering | JSON artefacts, CSV datasets, flattening, enrichment, validation, reproducible stages |
+| Machine Learning | Regression, classification, clustering, saved model artefacts, runtime inference |
+| Secure Coding | Modular boundaries, explicit execution paths, validation before modelling, operator-controlled remediation |
 
 ## Screenshots
 
 ### Operator Menu
 
-![WinShield+ operator menu](assets/winshield_menu.png)
+![WinShield+ operator menu](assets/operator_menu.png)
 
-The main entry point keeps the workflow explicit. The operator chooses when to scan, rank risk, run model setup, download packages, install packages, or clear generated artefacts.
+The main entry point keeps the workflow explicit. The operator chooses when to scan the host, rank risk, download packages, install packages, clear generated artefacts, or rebuild model artefacts.
 
-### Update Collection
+### System Scan
 
-![Windows update collection](assets/update_collection.png)
+![System scan baseline and MSRC collection](assets/system_scan-1.png)
 
-The scanner collects host baseline data, installed KBs, MSRC MonthIds, expected advisories, and missing update counts. This is the first stage where local patch state becomes security-relevant evidence.
+The scanner collects the host baseline, Windows build, product hint, installed KB inventory, MSRC MonthId range, mapped KB entries, and missing update count. This is where local patch state first becomes security-relevant evidence.
 
 ### KB And CVE Correlation
 
-![KB and CVE correlation table](assets/correlation_table.png)
+![KB and CVE correlation table](assets/system_scan-2.png)
 
-The correlation table shows how expected KBs, installed state, supersedence, MonthIds, and CVE counts connect. This is where WinShield+ exposes attack surface rather than only listing update history.
+The correlation table connects expected KBs, installed state, supersedence, MonthIds, and CVE mappings. This is the core attack-surface discovery layer: missing or superseded patch state is tied back to specific CVE exposure.
 
-### Training Data Pipeline
+### Missing KB Export
 
-![Training data pipeline](assets/data_pipeline.png)
+![Missing KB export summary](assets/system_scan-3.png)
 
-The training pipeline converts scan JSON into a dataset by flattening KB/CVE relationships, enriching CVEs with MSRC metadata, labelling rows, and validating required model fields.
+The scan summary highlights missing KBs and associated CVE counts before saving a runtime scan JSON artefact. This gives the operator a compact view while preserving a structured file for later enrichment and ranking.
 
-### Model Training
+### Model Setup
 
-![Model training output](assets/model_training.png)
+![Model setup output](assets/model_setup.png)
 
-The model setup trains regression, classification, and clustering models, then saves reusable artefacts under `models/` for runtime ranking.
+Model setup runs the training data pipeline, trains the model pipeline, and saves reusable artefacts. This separates model preparation from runtime scanning, keeping the operational workflow cleaner.
 
-### Runtime Pipeline
+### Runtime Data Pipeline
 
-![Runtime pipeline output](assets/runtime_pipeline.png)
+![Runtime data pipeline output](assets/risk_prioritisation-1.png)
 
-Runtime scans use the same transformation logic as training. This keeps feature structure aligned and avoids a common ML failure point where training data and live data drift apart.
+Runtime scan data is flattened, enriched with MSRC metadata, and validated using the same transformation logic as training. This avoids a common ML failure point where live inputs no longer match the feature structure used during model training.
 
-### Prioritisation Table
+### Risk Prioritisation
 
-![Prioritisation table](assets/prioritisation_table.png)
+![Risk prioritisation table](assets/risk_prioritisation-2.png)
 
-The prioritiser ranks missing KBs by the highest predicted CVE risk attached to each update. A single high-risk CVE can push an entire KB higher in the remediation order.
+The prioritiser checks model artefacts, loads validated runtime data, applies trained models, and ranks missing KBs. Each KB receives a risk score, priority label, cluster, and CVE count.
 
-### Remediation Summary
+### CVE Breakdown
 
-![Prioritisation summary](assets/prioritisation_summary.png)
+![CVE-level breakdown](assets/risk_prioritisation-3.png)
 
-The final output gives a short remediation order for the operator, while the full JSON result preserves the detailed CVE-level breakdown.
+The CVE breakdown preserves the evidence behind the ranking. A KB can be prioritised because of one or more high-risk CVEs, while the full JSON output keeps the detailed CVE-level predictions available for review.
 
 ## Architecture
 
