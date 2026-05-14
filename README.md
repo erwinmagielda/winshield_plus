@@ -23,21 +23,23 @@ WinShield+ focuses on that gap. The important output is not only that a patch is
 WinShield+ turns local patch state into a ranked vulnerability management workflow.
 
 ```text
-Harvest Host Data -> Build Scan JSON -> Enrich CVEs -> Build Dataset -> Train Models -> Scan Runtime Host -> Rank Missing KBs
+Harvest Data -> Enrich CVEs -> Build Dataset -> Train Models -> Scan Host -> Rank Missing KBs
 ```
 
 The scanner discovers patch-state exposure. The data pipeline turns nested scan output into model-ready rows. The prioritiser scores CVEs and aggregates them back to the KB level, because Windows remediation happens through updates, not isolated CVE fixes.
 
 ## Skills Presented
 
-| Area | Demonstrated Through |
+| Technical Skill | Practical Application in WinShield+ |
 |---|---|
-| Windows Administration | KB inventory, cumulative update handling, PowerShell collection, admin-aware scanning |
-| Vulnerability Management | CVE mapping, MSRC advisory correlation, missing patch exposure analysis |
-| Security Operations | Prioritised remediation output, evidence-based triage, analyst-readable results |
-| Data Engineering | JSON artefacts, CSV datasets, flattening, enrichment, validation, reproducible stages |
-| Machine Learning | Regression, classification, clustering, saved model artefacts, runtime inference |
-| Secure Coding | Modular boundaries, explicit execution paths, validation before modelling, operator-controlled remediation |
+| Vulnerability Analysis | Correlates host patch state with MSRC advisories to expose CVEs tied to missing Windows updates. |
+| Patch Management | Inventories installed KBs, detects missing updates, and accounts for cumulative update supersedence. |
+| Risk Prioritisation | Ranks missing KBs using CVSS scores, exploitability indicators, attack vector, and patch age. |
+| Automation & Scripting | Combines PowerShell-based Windows collection with Python-based processing and model execution. |
+| Security Analytics | Applies regression, classification, and clustering to score, label, and group vulnerability records. |
+| Data Engineering | Converts raw scan output into model-ready JSON/CSV datasets through enrichment and validation stages. |
+| Governance & Control | Uses modular logic, explicit operator actions, validation gates, and non-destructive default behaviour. |
+| Evidence & Reporting | Produces auditable CLI, JSON, and CSV outputs for review, remediation planning, and technical handoff. |
 
 ## Screenshots
 
