@@ -278,6 +278,7 @@ Portable USB
     -> Run WinShield+ Collector
     -> Scan Authorised Windows Host
     -> Export Compatible Scan JSON
+    -> Store Archived Runtime Copy
     -> Import Into WinShield+ Dataset
     -> Increase Training Data Coverage
 ```
