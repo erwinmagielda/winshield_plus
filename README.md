@@ -55,7 +55,7 @@ The main entry point keeps the workflow explicit. The operator chooses when to s
 
 The scanner collects the host baseline, Windows build, product hint, installed KB inventory, MSRC MonthId range, mapped KB entries, and missing update count. This is where local patch state first becomes security-relevant evidence.
 
-### KB And CVE Correlation
+### KB & CVE Correlation
 
 ![KB and CVE correlation table](assets/system_scan-2.png)
 
