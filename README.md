@@ -109,51 +109,49 @@ WinShield+ is built around modular security tooling rather than a single script.
 The architecture separates collection, correlation, enrichment, model execution, and remediation support. This code modularity makes the prototype easier to inspect, test, scale, and adapt for wider vulnerability assessment workflows.
 
 ```text
+winshield_plus.bat
+│   Launches the operator workflow, validates dependencies,
+│   checks elevation state, and performs pre-flight checks.
+│
 src/
 ├── powershell/
 │   ├── winshield_baseline.ps1
-│   │   Collects OS build, architecture, LCU context, admin state, and MSRC product hint.
+│   │   Collects OS build, architecture, LCU context, and MSRC product hint.
 │   │
 │   ├── winshield_inventory.ps1
 │   │   Enumerates installed KBs through Get-HotFix and Get-WindowsPackage.
 │   │
 │   ├── winshield_adapter.ps1
-│   │   Queries MSRC CVRF data and maps KB updates to affected CVEs and supersedence data.
+│   │   Queries MSRC CVRF data and maps KB updates to CVEs and supersedence data.
 │   │
 │   └── winshield_metadata.ps1
-│       Enriches CVEs with CVSS score, vector fields, severity, publication date, and exploitation status.
+│       Enriches CVEs with CVSS, severity, exploitation, and vector metadata.
 │
 ├── core/
 │   ├── winshield_master.py
 │   │   Provides the interactive operator menu and workflow orchestration.
 │   │
 │   ├── winshield_scanner.py
-│   │   Runs host scanning, KB/CVE correlation, supersedence handling, and runtime JSON export.
+│   │   Runs host scanning, KB/CVE correlation, and runtime JSON export.
 │   │
 │   ├── winshield_prioritiser.py
-│   │   Loads saved model artefacts, ranks missing KBs, and exports prioritisation results.
+│   │   Applies trained artefacts and ranks missing KBs by predicted risk.
 │   │
 │   ├── winshield_downloader.py
-│   │   Optionally resolves and downloads selected update packages from Microsoft Update Catalog.
+│   │   Resolves and downloads selected update packages from Microsoft Update Catalog.
 │   │
 │   └── winshield_installer.py
-│       Optionally installs selected .msu or .cab packages through WUSA or DISM.
+│       Installs selected update packages through WUSA or DISM helpers.
 │
 └── training/
     ├── data_pipeline.py
-    │   Builds training and runtime datasets through flattening, enrichment, labelling, and validation.
+    │   Builds validated training and runtime datasets from scan JSON.
     │
     ├── model_pipeline.py
     │   Runs the regression, classification, and clustering training stages.
     │
-    ├── train_regression.py
-    │   Trains the RandomForestRegressor used for continuous CVE risk scoring.
-    │
-    ├── train_classification.py
-    │   Trains the LogisticRegression model used for priority labels.
-    │
-    └── train_clustering.py
-        Trains the KMeans model used for exploratory vulnerability grouping.
+    └── train_*.py
+        Trains and exports reusable model artefacts.
 ```
 
 Each layer communicates through structured JSON or CSV artefacts. This preserves evidence integrity, supports repeatable analysis, and allows individual stages to be reviewed without re-running the entire workflow.
