@@ -8,7 +8,7 @@ The project addresses a practical security operations gap: Windows remediation i
 
 It is designed for controlled lab and portfolio use. It is not a replacement for Windows Update, WSUS, Intune, SCCM, Defender Vulnerability Management, or enterprise patch management. A separate companion repository, [WinShield+ Collector](https://github.com/erwinmagielda/winshield_collector), provides portable authorised-host collection and exports compatible scan JSON for dataset growth and offline analysis.
 
-## 1. Problem & Outcome
+## 1. Problem
 
 Windows Update can tell a machine how to stay current. It does not give an analyst a clear explanation of the attack surface left behind by missing patches.
 
@@ -26,7 +26,7 @@ Scan Host -> Map KBs To CVEs -> Enrich CVEs -> Validate Data -> Rank Missing KBs
 
 The output is not just a list of missing patches. It is a reviewable evidence trail showing which CVEs are linked to those missing patches, how the vulnerability records compare, and which KB should be reviewed first.
 
-## 2. Technical Capabilities
+## 2. Capabilities
 
 | Area | Implementation |
 |---|---|
@@ -37,7 +37,7 @@ The output is not just a list of missing patches. It is a reviewable evidence tr
 | Machine Learning | Applies regression, classification, and clustering to score, label, and group vulnerability records. |
 | Operational Control | Uses explicit operator actions, dependency checks, non-destructive defaults, and reviewable output artefacts. |
 
-## 3. Architecture And Data Flow
+## 3. Architecture
 
 ```text
 src/
@@ -92,7 +92,7 @@ src/core/winshield_prioritiser.py
   results/ranking_results.json
 ```
 
-## 4. Evidence & Model Logic
+## 4. Model Logic
 
 ### Operator Workflow
 
@@ -166,7 +166,7 @@ KB5083769
   cves: individual CVE predictions retained in JSON
 ```
 
-## 5. Operation, Controls And Status
+## 5. Operation
 
 Run from the repository root on Windows.
 
