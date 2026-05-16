@@ -20,20 +20,22 @@ WinShield+ combines PowerShell-based Windows collection with Python-based data p
 
 The project demonstrates:
 
-- Windows patch-state collection is performed through dedicated PowerShell modules that gather baseline, inventory, and servicing context.
-- Missing KB exposure is identified by correlating local update state with MSRC advisory data and CVE mappings.
-- Supersedence-aware scan logic reduces false missing-patch findings by recognising when newer cumulative updates satisfy older KBs.
-- Structured JSON and CSV artefacts preserve a repeatable evidence trail for review, troubleshooting, and security assessment.
-- Runtime and training pipelines keep feature preparation consistent between model training and live inference.
-- CVSS enrichment and metadata parsing convert raw advisory data into usable security analytics features.
-- Regression, classification, and clustering provide different analytical views over the same vulnerability dataset.
-- KB-level prioritisation translates CVE-level evidence back into the package-based language used by Windows remediation.
-- Optional download and installation stages demonstrate controlled remediation support without silent system modification.
-- The companion collector supports portable scan harvesting from authorised hosts for dataset growth and offline analysis.
+- PowerShell-based Windows patch-state collection.
+- MSRC advisory correlation for KB-to-CVE exposure mapping.
+- Supersedence-aware logic for cumulative update assessment.
+- Structured JSON and CSV artefacts for repeatable review.
+- Shared training and runtime pipelines for consistent features.
+- CVSS enrichment and vulnerability metadata parsing.
+- Regression, classification, and clustering for security analytics.
+- KB-level prioritisation from CVE-level evidence.
+- Optional remediation helpers with explicit operator control.
+- Companion collector support for portable scan harvesting.
 
 ---
 
 ## Screenshots
+
+The screenshots below show the main operator workflow, scan output, KB/CVE correlation, runtime pipeline, and prioritisation results. They are included to show the tool running end-to-end rather than only describing the architecture.
 
 ### Operator Menu
 
@@ -232,7 +234,7 @@ Clear Artefacts removes generated runtime files, datasets, models, results, and 
 
 ### Download Update
 
-Download Update is an optional testing-stage helper that attempts to resolve a selected missing KB through Microsoft Update Catalog. It uses host baseline constraints such as Windows generation, build, and architecture to reduce incorrect package selection.
+Download Update helper attempts to resolve a selected missing KB through [Microsoft Update Catalog](https://catalog.update.microsoft.com/home.aspx). It uses host baseline constraints such as Windows generation, build, and architecture to reduce incorrect package selection.
 
 ### Install Update
 
@@ -255,13 +257,15 @@ python src\core\winshield_prioritiser.py
 
 WinShield+ is supported by a separate repository: [WinShield+ Collector](https://github.com/erwinmagielda/winshield_collector).
 
-The collector is a portable host-scanning tool that exports the same scan JSON contract used by WinShield+. It allows authorised endpoint scan data to be collected separately and later used for dataset growth or offline analysis.
+The collector is a portable host-scanning tool that produces compatible WinShield+ scan JSON. It allows authorised endpoint data to be collected separately and later used for dataset growth or offline analysis.
 
 ```text
-Authorised Host
-    -> WinShield+ Collector
-    -> Compatible Scan JSON
-    -> WinShield+ Dataset Or Runtime Pipeline
+Portable USB
+    -> Run WinShield+ Collector
+    -> Scan Authorised Windows Host
+    -> Export Compatible Scan JSON
+    -> Import Into WinShield+ Dataset
+    -> Increase Training Data Coverage
 ```
 
 ---
