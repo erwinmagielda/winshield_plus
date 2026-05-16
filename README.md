@@ -163,19 +163,32 @@ Each layer communicates through structured JSON or CSV artefacts. This preserves
 Runtime data is not sent directly to the models. It passes through the same preparation path used during training so feature structure remains consistent.
 
 ```text
-Training Scans
-    -> data_pipeline.py --mode training
-    -> validated_dataset.csv
-    -> model_pipeline.py
-    -> saved .joblib artefacts
+Training Flow
 
-Live Host Scan
-    -> winshield_scanner.py
-    -> runtime scan JSON
-    -> data_pipeline.py --mode runtime
-    -> validated_runtime.csv
-    -> winshield_prioritiser.py
-    -> ranking_results.json
+data/scans/*.json
+    Source training scans.
+
+training/data_pipeline.py --mode training
+    Produces: data/dataset/validated_dataset.csv
+
+training/model_pipeline.py
+    Reads:    data/dataset/validated_dataset.csv
+    Produces: models/*.joblib
+
+
+Runtime Flow
+
+src/core/winshield_scanner.py
+    Produces: data/runtime/scan_*.json
+
+training/data_pipeline.py --mode runtime
+    Reads:    data/runtime/scan_*.json
+    Produces: data/runtime/validated_runtime.csv
+
+src/core/winshield_prioritiser.py
+    Reads:    data/runtime/validated_runtime.csv
+    Reads:    models/*.joblib
+    Produces: results/ranking_results.json
 ```
 
 This design reduces schema drift, dirty input risk, and feature mismatch between training and runtime execution. From a cybersecurity assessment perspective, it improves data prevalence by preserving consistent evidence across scan, enrichment, validation, and ranking stages.
