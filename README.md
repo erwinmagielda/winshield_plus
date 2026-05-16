@@ -2,13 +2,23 @@
 
 **Windows patch-state exposure discovery and risk-based remediation ranking.**
 
-WinShield+ scans a Windows host, identifies missing KB updates, maps those missing patches to affected CVEs, enriches the vulnerability data with Microsoft Security Response Center metadata, and ranks remediation priority through a transparent machine learning pipeline.
+WinShield+ is a Windows security engineering project that turns local patch state into reviewable vulnerability evidence. It scans a host, identifies missing KB updates, maps those missing patches to affected CVEs, enriches the data with Microsoft Security Response Center metadata, and ranks remediation priority at the operational KB level.
 
-The project addresses a practical security operations gap: Windows remediation is KB-driven, while vulnerability analysis is CVE-driven. WinShield+ connects those two views so a missing update can be reviewed through exposed CVEs, severity context, exploitation indicators, and KB-level remediation priority.
+The project addresses a practical gap in vulnerability management: Windows remediation is package-driven, while vulnerability analysis is CVE-driven. WinShield+ connects those views so an operator can move from "this KB is missing" to "these CVEs are exposed, this is the supporting context, and this update should be reviewed first."
 
 It is designed for controlled lab and portfolio use. It is not a replacement for Windows Update, WSUS, Intune, SCCM, Defender Vulnerability Management, or enterprise patch management.
 
-WinShield+ is also supported by a separate companion repository: [WinShield+ Collector](https://github.com/erwinmagielda/winshield_collector). The collector handles portable authorised-host scan collection and exports compatible JSON for dataset growth and offline analysis.
+## Companion Collector
+
+WinShield+ is supported by a separate portable collection tool: [WinShield+ Collector](https://github.com/erwinmagielda/winshield_collector).
+
+The collector is designed for authorised Windows hosts where the full analysis environment is not required. It collects compatible patch-state JSON using the same baseline, inventory, and MSRC correlation logic, then archives the scan for later analysis inside WinShield+.
+
+```text
+Authorised Host -> Portable Collector -> Compatible Scan JSON -> WinShield+ Dataset / Runtime Analysis
+```
+
+This separates lightweight host harvesting from heavier processing, enrichment, model training, and prioritisation. In portfolio terms, the collector demonstrates that the project was designed as a small tooling ecosystem rather than a single monolithic script.
 
 ## Problem
 
@@ -18,13 +28,27 @@ Windows Update can tell a machine how to stay current. It does not give an analy
 Missing KBs -> Many CVEs -> Mixed Severity -> Unclear Remediation Order
 ```
 
-WinShield+ turns local patch state into a ranked vulnerability management workflow.
+WinShield+ focuses on that triage problem. The useful output is not only which patches are missing. The useful output is which CVEs are linked to those missing patches, how those vulnerability records compare, and which KB should be reviewed first.
+
+## Approach
+
+WinShield+ turns local patch state into a structured remediation workflow.
 
 ```text
 Scan Host -> Map KBs To CVEs -> Enrich CVEs -> Validate Data -> Rank Missing KBs
 ```
 
-The output is not just a list of missing patches. It is a reviewable evidence trail showing which CVEs are linked to those missing patches, how the vulnerability records compare, and which KB should be reviewed first.
+The scanner discovers patch-linked exposure. The data pipeline turns nested scan output into model-ready rows. The prioritiser scores CVEs and aggregates results back to the KB level, because Windows remediation happens through updates, not isolated CVE fixes.
+
+| Stage | Role |
+|---|---|
+| Baseline Collection | Resolve OS version, build, architecture, LCU context, admin state, and MSRC product hint. |
+| Inventory Collection | Gather installed KBs through `Get-HotFix` and elevated Windows package data where available. |
+| MSRC Correlation | Query CVRF advisory data and map KB articles to affected CVEs. |
+| Supersedence Resolution | Treat superseded KBs as logically present when a newer installed update replaces them. |
+| Runtime Export | Save structured scan JSON for enrichment, prioritisation, and review. |
+| Data Pipeline | Flatten, enrich, label, and validate vulnerability records. |
+| Risk Ranking | Aggregate CVE-level scores back into KB-level remediation order. |
 
 ## Capabilities
 
@@ -34,7 +58,7 @@ The output is not just a list of missing patches. It is a reviewable evidence tr
 | Vulnerability Analysis | Correlates KB updates with MSRC CVRF advisory data to expose CVEs tied to missing Windows updates. |
 | Patch Logic | Handles cumulative update supersedence so replaced KBs are not treated as missing exposure. |
 | Data Engineering | Converts nested scan JSON into structured CSV datasets through flattening, enrichment, labelling, and validation. |
-| Machine Learning | Applies regression, classification, and clustering to score, label, and group vulnerability records. |
+| Security Analytics | Scores, labels, groups, and aggregates vulnerability records into KB-level remediation priorities. |
 | Operational Control | Uses explicit operator actions, dependency checks, non-destructive defaults, and reviewable output artefacts. |
 
 ## Architecture
@@ -92,7 +116,7 @@ src/core/winshield_prioritiser.py
   results/ranking_results.json
 ```
 
-## Evidence
+## Workflow Evidence
 
 ### Operator Menu
 
@@ -122,13 +146,13 @@ The scanner exports runtime JSON for enrichment and ranking.
 
 ![Runtime data pipeline output](assets/risk_prioritisation-1.png)
 
-Runtime data is flattened, enriched with MSRC metadata, and validated before inference.
+Runtime data is flattened, enriched with MSRC metadata, and validated before ranking.
 
 ### Risk Ranking
 
 ![Risk prioritisation table](assets/risk_prioritisation-2.png)
 
-The prioritiser ranks missing KBs using trained model artefacts and validated runtime rows.
+The prioritiser ranks missing KBs using trained artefacts and validated runtime rows.
 
 ### CVE Breakdown
 
@@ -136,9 +160,9 @@ The prioritiser ranks missing KBs using trained model artefacts and validated ru
 
 The CVE breakdown preserves the evidence behind each KB-level recommendation.
 
-### Risk Policy
+## Risk Model
 
-The supervised labels are generated from a transparent rule before model training.
+The current supervised labels are generated from a transparent policy before model training.
 
 ```text
 risk_score = cvss_score
@@ -153,11 +177,15 @@ risk_score = cvss_score
 | `>= 6` | Medium |
 | `< 6` | Low |
 
+The model layer should be read as an engineering blueprint rather than a claim that machine learning is necessary for a simple deterministic formula. In this version, the labels are rule-derived so the system remains explainable and easy to validate. The value is in the repeatable pipeline: ingest host scan JSON, enrich upstream advisory records, preserve a stable feature schema, train reusable artefacts, run runtime inference, and aggregate CVE-level records back to KB-level decisions.
+
+This structure leaves room for richer future inputs without redesigning the pipeline, such as threat intelligence, exploit maturity, asset criticality, endpoint exposure, compensating controls, or real incident outcomes.
+
 | Model | Purpose |
 |---|---|
-| `RandomForestRegressor` | Continuous CVE risk score. |
-| `LogisticRegression` | Low, Medium, or High priority label. |
-| `KMeans` | Grouping of similar vulnerability records. |
+| `RandomForestRegressor` | Produces a continuous CVE risk score from validated features. |
+| `LogisticRegression` | Assigns a Low, Medium, or High triage label. |
+| `KMeans` | Groups vulnerability records with similar feature patterns. |
 
 At runtime, CVE-level predictions are aggregated back to KB level. The maximum CVE risk determines the KB ranking because one serious vulnerability can justify urgent review.
 
