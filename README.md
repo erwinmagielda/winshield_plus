@@ -221,11 +221,14 @@ The launcher performs pre-flight checks before opening the operator menu. It ver
 
 Recommended first run:
 
-```text
-6) Model Setup
-1) Scan System
-2) Rank Risk
-```
+| Step | Action | Purpose |
+|---|---|---|
+| 1 | `Model Setup` | Builds the training dataset, trains the models, and exports reusable artefacts into `models/`. |
+| 2 | `Scan System` | Collects host patch-state data, maps KBs to CVEs, and exports the runtime scan JSON. |
+| 3 | `Rank Risk` | Processes the runtime scan through the validation pipeline and produces KB-level prioritisation results. |
+| 4 | `Download Update` | Optional testing-stage helper for retrieving a selected missing package from Microsoft Update Catalog. |
+| 5 | `Install Update` | Optional testing-stage helper for applying a selected `.msu` or `.cab` package through WUSA or DISM. |
+| 6 | `Clear Artefacts` | Optional cleanup action that removes generated files while preserving source training scans. |
 
 ### Model Setup
 
