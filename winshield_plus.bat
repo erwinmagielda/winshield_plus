@@ -1,7 +1,7 @@
 @echo off
 setlocal
 
-title WinShield+
+title WinShield+ Launcher
 
 REM ------------------------------------------------------------
 REM WinShield+ Launcher
