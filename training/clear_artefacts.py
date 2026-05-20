@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import shutil
 import sys
+from dataclasses import dataclass, field
 from pathlib import Path
 
 
@@ -23,14 +24,14 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 
-from utils.winshield_banner import (  # noqa: E402
+from utils.winshield_banner import (
     print_error,
     print_info,
     print_step,
     print_success,
     print_warning,
 )
-from utils.winshield_paths import (  # noqa: E402
+from utils.winshield_paths import (
     ensure_directory,
     get_dataset_dir,
     get_downloads_dir,
@@ -59,6 +60,19 @@ GENERATED_DIRS = {
 
 
 # ------------------------------------------------------------
+# DATA MODELS
+# ------------------------------------------------------------
+
+@dataclass
+class CleanupResult:
+    """Store cleanup counts and skipped paths."""
+
+    removed_count: int = 0
+    skipped_locked: list[Path] = field(default_factory=list)
+    skipped_other: list[Path] = field(default_factory=list)
+
+
+# ------------------------------------------------------------
 # GENERAL HELPERS
 # ------------------------------------------------------------
 
@@ -66,7 +80,7 @@ def relative_path(path: Path) -> str:
     """Return a repository-relative path for clean output."""
 
     try:
-        return str(path.relative_to(ROOT_DIR))
+        return path.relative_to(ROOT_DIR).as_posix()
     except ValueError:
         return str(path)
 
@@ -75,6 +89,12 @@ def is_preserved_placeholder(path: Path) -> bool:
     """Return True if the path is a preserved repository placeholder."""
 
     return path.name == ".gitkeep"
+
+
+def is_locked_file_error(error: OSError) -> bool:
+    """Return True if Windows reports that a file is currently locked."""
+
+    return getattr(error, "winerror", None) == 32
 
 
 # ------------------------------------------------------------
@@ -88,17 +108,53 @@ def prepare_generated_directories() -> None:
         ensure_directory(directory)
 
 
-def clear_directory_contents(directory: Path) -> int:
+def remove_file(path: Path, result: CleanupResult) -> None:
+    """Remove a file while safely handling locked files."""
+
+    try:
+        path.unlink()
+        result.removed_count += 1
+
+    except PermissionError as exc:
+        if is_locked_file_error(exc):
+            result.skipped_locked.append(path)
+            return
+
+        result.skipped_other.append(path)
+
+    except OSError:
+        result.skipped_other.append(path)
+
+
+def remove_directory(path: Path, result: CleanupResult) -> None:
+    """Remove a directory while safely handling locked files."""
+
+    try:
+        shutil.rmtree(path)
+        result.removed_count += 1
+
+    except PermissionError as exc:
+        if is_locked_file_error(exc):
+            result.skipped_locked.append(path)
+            return
+
+        result.skipped_other.append(path)
+
+    except OSError:
+        result.skipped_other.append(path)
+
+
+def clear_directory_contents(directory: Path) -> CleanupResult:
     """
     Clear generated contents from a directory.
 
     Preserves .gitkeep files so empty directories remain tracked by Git.
-    Returns the number of removed items.
+    Locked files are skipped so cleanup can continue while WinShield+ is open.
     """
 
     ensure_directory(directory)
 
-    removed_count = 0
+    result = CleanupResult()
 
     for item in directory.iterdir():
 
@@ -106,36 +162,32 @@ def clear_directory_contents(directory: Path) -> int:
             continue
 
         if item.is_dir():
-            shutil.rmtree(item)
-            removed_count += 1
+            remove_directory(item, result)
             continue
 
-        item.unlink()
-        removed_count += 1
+        remove_file(item, result)
 
-    return removed_count
+    return result
 
 
-def clear_python_cache() -> int:
+def clear_python_cache() -> CleanupResult:
     """
     Remove Python cache folders and compiled bytecode files.
 
-    Returns the number of removed cache artefacts.
+    Locked cache artefacts are skipped so cleanup does not crash.
     """
 
-    removed_count = 0
+    result = CleanupResult()
 
     for cache_dir in ROOT_DIR.rglob("__pycache__"):
         if cache_dir.is_dir():
-            shutil.rmtree(cache_dir)
-            removed_count += 1
+            remove_directory(cache_dir, result)
 
     for bytecode_file in ROOT_DIR.rglob("*.pyc"):
         if bytecode_file.is_file():
-            bytecode_file.unlink()
-            removed_count += 1
+            remove_file(bytecode_file, result)
 
-    return removed_count
+    return result
 
 
 def confirm_cleanup() -> bool:
@@ -155,6 +207,29 @@ def confirm_cleanup() -> bool:
     response = input("Type YES to continue: ").strip()
 
     return response == "YES"
+
+
+def merge_results(target: CleanupResult, source: CleanupResult) -> None:
+    """Merge one cleanup result into another."""
+
+    target.removed_count += source.removed_count
+    target.skipped_locked.extend(source.skipped_locked)
+    target.skipped_other.extend(source.skipped_other)
+
+
+def print_skipped_paths(title: str, paths: list[Path]) -> None:
+    """Print skipped paths in a compact format."""
+
+    if not paths:
+        return
+
+    print_warning(f"{title}: {len(paths)}")
+
+    for path in paths[:10]:
+        print(f"    - {relative_path(path)}")
+
+    if len(paths) > 10:
+        print(f"    - ... {len(paths) - 10} more")
 
 
 # ------------------------------------------------------------
@@ -184,23 +259,26 @@ def main() -> int:
     print()
     print_step("Clearing generated artefacts")
 
-    removed_total = 0
+    total_result = CleanupResult()
     removed_by_category: dict[str, int] = {}
 
     for label, directory in GENERATED_DIRS.items():
-        removed_count = clear_directory_contents(directory)
-        removed_by_category[label] = removed_count
-        removed_total += removed_count
+        result = clear_directory_contents(directory)
+        removed_by_category[label] = result.removed_count
+        merge_results(total_result, result)
 
-    pycache_count = clear_python_cache()
-    removed_by_category["pycache"] = pycache_count
-    removed_total += pycache_count
+    pycache_result = clear_python_cache()
+    removed_by_category["pycache"] = pycache_result.removed_count
+    merge_results(total_result, pycache_result)
 
     print()
-    print_success(f"Removed artefacts: {removed_total}")
+    print_success(f"Removed artefacts: {total_result.removed_count}")
 
     for label, removed_count in removed_by_category.items():
         print(f"    {label}: {removed_count}")
+
+    print_skipped_paths("Locked artefacts skipped", total_result.skipped_locked)
+    print_skipped_paths("Artefacts skipped due to errors", total_result.skipped_other)
 
     print()
     print_success("Clear Artefacts completed")
