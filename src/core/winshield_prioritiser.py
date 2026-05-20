@@ -6,7 +6,10 @@ classification, and clustering models, then ranks missing KBs by predicted risk.
 Exports ranked prioritisation results for review or downstream automation.
 """
 
+from __future__ import annotations
+
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -15,15 +18,38 @@ import pandas as pd
 
 
 # ------------------------------------------------------------
+# IMPORT PATH SETUP
+# ------------------------------------------------------------
+
+ROOT_DIR = Path(__file__).resolve().parents[2]
+SRC_DIR = ROOT_DIR / "src"
+
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
+
+
+from utils.winshield_banner import (  # noqa: E402
+    print_error,
+    print_section,
+    print_step,
+    print_success,
+    print_warning,
+)
+from utils.winshield_paths import (  # noqa: E402
+    ensure_directory,
+    get_models_dir,
+    get_results_dir,
+    get_runtime_dir,
+)
+
+
+# ------------------------------------------------------------
 # PATHS
 # ------------------------------------------------------------
 
-SCRIPT_DIR = Path(__file__).resolve().parent
-ROOT_DIR = SCRIPT_DIR.parents[1]
-
-RUNTIME_DIR = ROOT_DIR / "data" / "runtime"
-MODELS_DIR = ROOT_DIR / "models"
-RESULTS_DIR = ROOT_DIR / "results"
+RUNTIME_DIR = get_runtime_dir()
+MODELS_DIR = get_models_dir()
+RESULTS_DIR = get_results_dir()
 
 RUNTIME_DATA_PATH = RUNTIME_DIR / "validated_runtime.csv"
 
@@ -38,19 +64,10 @@ CLUSTERING_PREPROCESSOR_PATH = MODELS_DIR / "clustering_preprocessor.joblib"
 
 RESULTS_PATH = RESULTS_DIR / "ranking_results.json"
 
-RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-
 
 # ------------------------------------------------------------
-# DISPLAY HELPERS
+# GENERAL HELPERS
 # ------------------------------------------------------------
-
-def print_section(title: str) -> None:
-    """Print a standard prioritiser section heading."""
-
-    print()
-    print(f"--- {title} ---")
-
 
 def relative_path(path: Path) -> str:
     """Return a repository-relative path for clean output."""
@@ -209,10 +226,10 @@ def print_runtime_summary(runtime_data: pd.DataFrame) -> None:
     """Print concise runtime dataset summary."""
 
     print_section("Runtime Data")
-    print(f"[+] Input: {relative_path(RUNTIME_DATA_PATH)}")
-    print(f"[+] Runtime rows: {len(runtime_data)}")
-    print(f"[+] Unique KBs: {runtime_data['kb_id'].nunique()}")
-    print(f"[+] Unique CVEs: {runtime_data['cve_id'].nunique()}")
+    print_success(f"Input: {relative_path(RUNTIME_DATA_PATH)}")
+    print_success(f"Runtime rows: {len(runtime_data)}")
+    print_success(f"Unique KBs: {runtime_data['kb_id'].nunique()}")
+    print_success(f"Unique CVEs: {runtime_data['cve_id'].nunique()}")
 
 
 def print_patch_recommendation(predictions: pd.DataFrame) -> None:
@@ -223,7 +240,7 @@ def print_patch_recommendation(predictions: pd.DataFrame) -> None:
     results = build_results(predictions)
 
     if not results:
-        print("[!] No ranking results produced")
+        print_warning("No ranking results produced")
         return
 
     header = (
@@ -277,7 +294,7 @@ def print_kb_breakdown(predictions: pd.DataFrame) -> None:
             print(separator)
             print()
 
-        print(f"[+] {kb_id}")
+        print_success(kb_id)
         print(
             f"    KB risk: {max_risk:.2f} | "
             f"Priority: {classification} | "
@@ -312,47 +329,56 @@ def print_kb_breakdown(predictions: pd.DataFrame) -> None:
 def save_results(predictions: pd.DataFrame) -> None:
     """Save KB ranking results to the results directory."""
 
+    ensure_directory(RESULTS_DIR)
+
     output = build_results(predictions)
 
     with RESULTS_PATH.open("w", encoding="utf-8") as file:
         json.dump(output, file, indent=2)
 
-    print(f"[+] Results saved: {relative_path(RESULTS_PATH)}")
+    print_success(f"Results saved: {relative_path(RESULTS_PATH)}")
 
 
 # ------------------------------------------------------------
 # MAIN WORKFLOW
 # ------------------------------------------------------------
 
-def main() -> None:
+def main() -> int:
     """Run the WinShield+ risk prioritisation workflow."""
 
-    print()
-    print("=" * 60)
-    print("WinShield+ - Risk Prioritisation")
-    print("=" * 60)
+    try:
+        print_section("Pre-flight")
+        print_step("Checking model artefacts")
+        validate_model_artefacts()
+        print_success("Model artefacts ready")
 
-    print_section("Pre-flight")
-    print("[*] Checking model artefacts")
-    validate_model_artefacts()
-    print("[+] Model artefacts ready")
+        runtime_data = load_runtime_data()
+        print_runtime_summary(runtime_data)
 
-    runtime_data = load_runtime_data()
-    print_runtime_summary(runtime_data)
+        print_section("Inference")
+        print_step("Applying trained models")
+        predictions = predict_priorities(runtime_data)
+        print_success("Predictions generated")
 
-    print_section("Inference")
-    print("[*] Applying trained models")
-    predictions = predict_priorities(runtime_data)
-    print("[+] Predictions generated")
+        print_patch_recommendation(predictions)
+        print_kb_breakdown(predictions)
 
-    print_patch_recommendation(predictions)
-    print_kb_breakdown(predictions)
+        print_section("Export")
+        save_results(predictions)
 
-    print_section("Export")
-    save_results(predictions)
+        print()
+        print_success("Risk Prioritisation completed")
 
-    print()
-    print("[+] Risk Prioritisation completed")
+        return 0
+
+    except KeyboardInterrupt:
+        print()
+        print_warning("Risk Prioritisation cancelled")
+        return 130
+
+    except Exception as exc:
+        print_error(f"Risk Prioritisation failed: {exc}")
+        return 1
 
 
 # ------------------------------------------------------------
@@ -360,4 +386,4 @@ def main() -> None:
 # ------------------------------------------------------------
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
