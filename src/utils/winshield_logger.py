@@ -1,8 +1,8 @@
 """
 WinShield+ logging utilities.
 
-Creates simple timestamped log files for runtime operations while keeping
-terminal output separate from file logging.
+Creates timestamped log files for runtime operations while keeping terminal
+output separate from file logging.
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
-from winshield_paths import get_logs_dir, ensure_directory
+from utils.winshield_paths import ensure_directory, get_logs_dir
 
 
 # ------------------------------------------------------------
@@ -40,6 +40,7 @@ def setup_logger(name: str = "winshield", prefix: str = "winshield") -> logging.
     logger = logging.getLogger(name)
     logger.setLevel(logging.INFO)
     logger.handlers.clear()
+    logger.propagate = False
 
     log_path = get_log_path(prefix)
 

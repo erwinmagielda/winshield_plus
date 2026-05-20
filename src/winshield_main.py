@@ -23,6 +23,7 @@ from utils.winshield_banner import (
     print_warning,
     print_workflow_header,
 )
+from utils.winshield_logger import setup_logger
 from utils.winshield_paths import (
     get_models_dir,
     get_project_root,
@@ -60,6 +61,13 @@ PYTHON_EXE = sys.executable
 
 
 # ------------------------------------------------------------
+# LOGGING
+# ------------------------------------------------------------
+
+LOGGER = setup_logger(name="winshield", prefix="winshield")
+
+
+# ------------------------------------------------------------
 # GENERAL HELPERS
 # ------------------------------------------------------------
 
@@ -67,7 +75,7 @@ def relative_path(path: Path) -> str:
     """Return a repository-relative path for clean console output."""
 
     try:
-        return str(path.relative_to(ROOT_DIR))
+        return path.relative_to(ROOT_DIR).as_posix()
     except ValueError:
         return str(path)
 
@@ -151,9 +159,11 @@ def run_stage(label: str, script_path: Path) -> int:
 
     if not script_path.is_file():
         print_error(f"Stage script missing: {relative_path(script_path)}")
+        LOGGER.error("Stage script missing: %s", relative_path(script_path))
         return 1
 
     print_step(f"Running {relative_path(script_path)}")
+    LOGGER.info("Running stage: %s (%s)", label, relative_path(script_path))
 
     try:
         completed = subprocess.run(
@@ -165,10 +175,12 @@ def run_stage(label: str, script_path: Path) -> int:
     except KeyboardInterrupt:
         print()
         print_warning(f"{label} cancelled")
+        LOGGER.warning("%s cancelled", label)
         return 130
 
     except Exception as exc:
         print_error(f"{label} failed to launch: {exc}")
+        LOGGER.exception("%s failed to launch", label)
         return 1
 
     return_code = int(completed.returncode or 0)
@@ -176,6 +188,9 @@ def run_stage(label: str, script_path: Path) -> int:
     if return_code != 0:
         print()
         print_error(f"{label} failed: exit code {return_code}")
+        LOGGER.error("%s failed with exit code %s", label, return_code)
+    else:
+        LOGGER.info("%s completed successfully", label)
 
     return return_code
 
@@ -188,6 +203,7 @@ def run_model_setup() -> int:
     """Run training data preparation followed by model training."""
 
     print_workflow_header("Model Setup")
+    LOGGER.info("Model Setup started")
 
     pipeline = [
         ("Data Pipeline", DATA_PIPELINE_SCRIPT, ["--mode", "training"]),
@@ -223,6 +239,7 @@ def run_model_setup() -> int:
 
         if not script_path.is_file():
             print_error(f"Stage script missing: {relative_path(script_path)}")
+            LOGGER.error("Model Setup stage script missing: %s", relative_path(script_path))
 
             stage_summary["finished_at_utc"] = utc_timestamp()
             stage_summary["exit_code"] = 1
@@ -236,6 +253,7 @@ def run_model_setup() -> int:
             return 1
 
         print_step(f"Running {label}")
+        LOGGER.info("Model Setup running stage: %s", label)
 
         try:
             result = subprocess.run(
@@ -249,6 +267,7 @@ def run_model_setup() -> int:
         except KeyboardInterrupt:
             print()
             print_warning("Model Setup cancelled")
+            LOGGER.warning("Model Setup cancelled")
 
             stage_summary["finished_at_utc"] = utc_timestamp()
             stage_summary["exit_code"] = 130
@@ -263,6 +282,7 @@ def run_model_setup() -> int:
 
         except Exception as exc:
             print_error(f"{label} failed to launch: {exc}")
+            LOGGER.exception("Model Setup stage failed to launch: %s", label)
 
             stage_summary["finished_at_utc"] = utc_timestamp()
             stage_summary["exit_code"] = 1
@@ -284,9 +304,11 @@ def run_model_setup() -> int:
         if result.returncode == 0:
             stage_summary["status"] = "completed"
             print_success(f"{label} completed")
+            LOGGER.info("Model Setup stage completed: %s", label)
         else:
             stage_summary["status"] = "failed"
             print_error(f"{label} failed: exit code {result.returncode}")
+            LOGGER.error("Model Setup stage failed: %s | code %s", label, result.returncode)
 
             summary["stages"].append(stage_summary)
             summary["finished_at_utc"] = utc_timestamp()
@@ -304,6 +326,7 @@ def run_model_setup() -> int:
 
     print()
     print_success("Model Setup completed")
+    LOGGER.info("Model Setup completed")
 
     return 0
 
@@ -317,6 +340,7 @@ def save_model_setup_summary(summary: dict[str, Any]) -> None:
         json.dump(summary, file, indent=2)
 
     print_success(f"Summary saved: {relative_path(MODEL_SETUP_RUN_PATH)}")
+    LOGGER.info("Model Setup summary saved: %s", relative_path(MODEL_SETUP_RUN_PATH))
 
 
 # ------------------------------------------------------------
@@ -327,14 +351,17 @@ def run_runtime_pipeline() -> int:
     """Run runtime data preparation followed by KB prioritisation."""
 
     print_workflow_header("Rank Risk")
+    LOGGER.info("Rank Risk started")
 
     if not models_are_present():
         print_info("Run Model Setup before ranking risk")
+        LOGGER.warning("Rank Risk stopped because model artefacts are missing")
         return 1
 
     if not runtime_scan_is_present():
         print_error("Runtime scan missing")
         print_info("Run Scan System before ranking risk")
+        LOGGER.warning("Rank Risk stopped because runtime scan is missing")
         return 1
 
     pipeline = [
@@ -346,9 +373,11 @@ def run_runtime_pipeline() -> int:
 
         if not script_path.is_file():
             print_error(f"Stage script missing: {relative_path(script_path)}")
+            LOGGER.error("Rank Risk stage script missing: %s", relative_path(script_path))
             return 1
 
         print_step(f"Running {label}")
+        LOGGER.info("Rank Risk running stage: %s", label)
 
         try:
             result = subprocess.run(
@@ -360,18 +389,24 @@ def run_runtime_pipeline() -> int:
         except KeyboardInterrupt:
             print()
             print_warning("Rank Risk cancelled")
+            LOGGER.warning("Rank Risk cancelled")
             return 130
 
         except Exception as exc:
             print_error(f"{label} failed to launch: {exc}")
+            LOGGER.exception("Rank Risk stage failed to launch: %s", label)
             return 1
 
         if result.returncode != 0:
             print_error(f"{label} failed: exit code {result.returncode}")
+            LOGGER.error("Rank Risk stage failed: %s | code %s", label, result.returncode)
             return int(result.returncode)
+
+        LOGGER.info("Rank Risk stage completed: %s", label)
 
     print()
     print_success("Rank Risk completed")
+    LOGGER.info("Rank Risk completed")
 
     return 0
 
@@ -406,6 +441,7 @@ def read_choice() -> str:
         except (KeyboardInterrupt, EOFError):
             print()
             print_warning("WinShield+ cancelled")
+            LOGGER.warning("WinShield+ cancelled at menu prompt")
             return "7"
 
         if choice:
@@ -419,27 +455,36 @@ def read_choice() -> str:
 def main() -> int:
     """Run the interactive WinShield+ menu."""
 
+    LOGGER.info("WinShield+ started")
+
     if not prepare_environment():
+        LOGGER.error("Runtime environment preparation failed")
         return 1
 
     while True:
 
         print_menu()
         choice = read_choice()
+        LOGGER.info("Menu option selected: %s", choice)
 
         if choice == "7":
             print()
             print_success("Exiting WinShield+")
+            LOGGER.info("WinShield+ exited")
             return 0
 
         if choice == "2":
             return_code = run_runtime_pipeline()
+            LOGGER.info("Rank Risk exited with code %s", return_code)
+
             if return_code != 0:
                 print_warning(f"Rank Risk exited: code {return_code}")
             continue
 
         if choice == "6":
             return_code = run_model_setup()
+            LOGGER.info("Model Setup exited with code %s", return_code)
+
             if return_code != 0:
                 print_warning(f"Model Setup exited: code {return_code}")
             continue
@@ -447,12 +492,15 @@ def main() -> int:
         if choice in STAGES:
             label, script_path = STAGES[choice]
             return_code = run_stage(label, script_path)
+            LOGGER.info("%s exited with code %s", label, return_code)
+
             if return_code != 0:
                 print_warning(f"{label} exited: code {return_code}")
             continue
 
         print()
         print_warning("Invalid selection")
+        LOGGER.warning("Invalid menu selection: %s", choice)
         print()
 
 
