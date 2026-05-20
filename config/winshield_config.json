@@ -1,0 +1,29 @@
+{
+  "project_name": "WinShield+",
+  "version": "0.1.0",
+  "description": "Windows patch risk prioritisation and analysis system",
+  "paths": {
+    "scan_source_dir": "data/scans",
+    "dataset_dir": "data/dataset",
+    "runtime_dir": "data/runtime",
+    "logs_dir": "data/logs",
+    "models_dir": "models",
+    "results_dir": "results",
+    "downloads_dir": "downloads"
+  },
+  "powershell": {
+    "execution_policy": "Bypass",
+    "required_module": "MsrcSecurityUpdates"
+  },
+  "runtime": {
+    "preserve_training_scans": true,
+    "preserve_gitkeep_files": true,
+    "clear_python_cache": true
+  },
+  "model_pipeline": {
+    "enabled": true,
+    "regression": true,
+    "classification": true,
+    "clustering": true
+  }
+}
