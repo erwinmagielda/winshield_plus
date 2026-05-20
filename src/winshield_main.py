@@ -25,10 +25,18 @@ from utils.winshield_banner import (
 )
 from utils.winshield_logger import setup_logger
 from utils.winshield_paths import (
+    get_clear_artefacts_script,
+    get_data_pipeline_script,
+    get_downloader_script,
+    get_installer_script,
+    get_model_pipeline_script,
+    get_model_setup_summary_path,
     get_models_dir,
+    get_prioritiser_script,
     get_project_root,
     get_results_dir,
     get_runtime_dir,
+    get_scanner_script,
     prepare_runtime_directories,
 )
 
@@ -38,24 +46,21 @@ from utils.winshield_paths import (
 # ------------------------------------------------------------
 
 ROOT_DIR = get_project_root()
-SRC_DIR = ROOT_DIR / "src"
-CORE_DIR = SRC_DIR / "core"
-TRAINING_DIR = ROOT_DIR / "training"
 
-DATA_PIPELINE_SCRIPT = TRAINING_DIR / "data_pipeline.py"
-MODEL_PIPELINE_SCRIPT = TRAINING_DIR / "model_pipeline.py"
-CLEAR_ARTEFACTS_SCRIPT = TRAINING_DIR / "clear_artefacts.py"
+DATA_PIPELINE_SCRIPT = get_data_pipeline_script()
+MODEL_PIPELINE_SCRIPT = get_model_pipeline_script()
+CLEAR_ARTEFACTS_SCRIPT = get_clear_artefacts_script()
 
-SCANNER_SCRIPT = CORE_DIR / "winshield_scanner.py"
-PRIORITISER_SCRIPT = CORE_DIR / "winshield_prioritiser.py"
-DOWNLOADER_SCRIPT = CORE_DIR / "winshield_downloader.py"
-INSTALLER_SCRIPT = CORE_DIR / "winshield_installer.py"
+SCANNER_SCRIPT = get_scanner_script()
+PRIORITISER_SCRIPT = get_prioritiser_script()
+DOWNLOADER_SCRIPT = get_downloader_script()
+INSTALLER_SCRIPT = get_installer_script()
 
 RUNTIME_DIR = get_runtime_dir()
 MODELS_DIR = get_models_dir()
 RESULTS_DIR = get_results_dir()
 
-MODEL_SETUP_RUN_PATH = RESULTS_DIR / "model_setup_run.json"
+MODEL_SETUP_RUN_PATH = get_model_setup_summary_path()
 
 PYTHON_EXE = sys.executable
 
