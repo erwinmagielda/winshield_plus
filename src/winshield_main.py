@@ -209,6 +209,48 @@ def run_stage(label: str, script_path: Path) -> int:
     return return_code
 
 
+def run_python_script_live(
+    label: str,
+    script_path: Path,
+    args: list[str],
+) -> tuple[int, str]:
+    """Run a Python script and stream its output live to the console."""
+
+    output_lines: list[str] = []
+
+    try:
+        process = subprocess.Popen(
+            [PYTHON_EXE, "-u", str(script_path), *args],
+            cwd=ROOT_DIR,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+        )
+
+        if process.stdout:
+            for line in process.stdout:
+                print(line, end="")
+                output_lines.append(line)
+
+        return_code = process.wait()
+
+        return int(return_code or 0), "".join(output_lines)
+
+    except KeyboardInterrupt:
+        print()
+        print_warning(f"{label} cancelled")
+        LOGGER.warning("%s cancelled", label)
+
+        return 130, "".join(output_lines)
+
+    except Exception as exc:
+        print_error(f"{label} failed to launch: {exc}")
+        LOGGER.exception("%s failed to launch", label)
+
+        return 1, "".join(output_lines)
+
+
 # ------------------------------------------------------------
 # MODEL SETUP PIPELINE
 # ------------------------------------------------------------
@@ -253,7 +295,10 @@ def run_model_setup() -> int:
 
         if not script_path.is_file():
             print_error(f"Stage script missing: {relative_path(script_path)}")
-            LOGGER.error("Model Setup stage script missing: %s", relative_path(script_path))
+            LOGGER.error(
+                "Model Setup stage script missing: %s",
+                relative_path(script_path),
+            )
 
             stage_summary["finished_at_utc"] = utc_timestamp()
             stage_summary["exit_code"] = 1
@@ -269,22 +314,18 @@ def run_model_setup() -> int:
         print_step(f"Running {label}")
         LOGGER.info("Model Setup running stage: %s", label)
 
-        try:
-            result = subprocess.run(
-                [PYTHON_EXE, str(script_path), *args],
-                cwd=ROOT_DIR,
-                capture_output=True,
-                text=True,
-                check=False,
-            )
+        return_code, stage_output = run_python_script_live(
+            label=label,
+            script_path=script_path,
+            args=args,
+        )
 
-        except KeyboardInterrupt:
-            print()
-            print_warning("Model Setup cancelled")
-            LOGGER.warning("Model Setup cancelled")
+        stage_summary["finished_at_utc"] = utc_timestamp()
+        stage_summary["exit_code"] = return_code
+        stage_summary["stdout"] = stage_output
+        stage_summary["stderr"] = ""
 
-            stage_summary["finished_at_utc"] = utc_timestamp()
-            stage_summary["exit_code"] = 130
+        if return_code == 130:
             stage_summary["status"] = "cancelled"
 
             summary["stages"].append(stage_summary)
@@ -294,42 +335,20 @@ def run_model_setup() -> int:
             save_model_setup_summary(summary)
             return 130
 
-        except Exception as exc:
-            print_error(f"{label} failed to launch: {exc}")
-            LOGGER.exception("Model Setup stage failed to launch: %s", label)
-
-            stage_summary["finished_at_utc"] = utc_timestamp()
-            stage_summary["exit_code"] = 1
-            stage_summary["status"] = "failed_to_launch"
-            stage_summary["stderr"] = str(exc)
-
-            summary["stages"].append(stage_summary)
-            summary["finished_at_utc"] = utc_timestamp()
-            summary["status"] = "failed"
-
-            save_model_setup_summary(summary)
-            return 1
-
-        stage_summary["finished_at_utc"] = utc_timestamp()
-        stage_summary["exit_code"] = int(result.returncode or 0)
-        stage_summary["stdout"] = result.stdout
-        stage_summary["stderr"] = result.stderr
-
-        if result.returncode == 0:
+        if return_code == 0:
             stage_summary["status"] = "completed"
-            print_success(f"{label} completed")
             LOGGER.info("Model Setup stage completed: %s", label)
         else:
             stage_summary["status"] = "failed"
-            print_error(f"{label} failed: exit code {result.returncode}")
-            LOGGER.error("Model Setup stage failed: %s | code %s", label, result.returncode)
+            print_error(f"{label} failed: exit code {return_code}")
+            LOGGER.error("Model Setup stage failed: %s | code %s", label, return_code)
 
             summary["stages"].append(stage_summary)
             summary["finished_at_utc"] = utc_timestamp()
             summary["status"] = "failed"
 
             save_model_setup_summary(summary)
-            return int(result.returncode)
+            return return_code
 
         summary["stages"].append(stage_summary)
 
