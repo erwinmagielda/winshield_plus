@@ -12,13 +12,11 @@ REM ------------------------------------------------------------
 cd /d "%~dp0"
 
 set "APP_NAME=WinShield+"
-set "MASTER_SCRIPT=src\core\winshield_master.py"
+set "MAIN_SCRIPT=src\winshield_main.py"
 set "POWERSHELL_DIR=src\powershell"
 
 echo.
-echo ============================================================
-echo  WinShield+
-echo ============================================================
+echo Starting WinShield+...
 echo.
 
 REM ------------------------------------------------------------
@@ -125,12 +123,18 @@ REM ------------------------------------------------------------
 REM REQUIRED FILE CHECKS
 REM ------------------------------------------------------------
 
-if not exist "%MASTER_SCRIPT%" (
-    echo [X] Master script missing:
-    echo %MASTER_SCRIPT%
+if not exist "%MAIN_SCRIPT%" (
+    echo [X] Main script missing:
+    echo %MAIN_SCRIPT%
     echo.
     pause
     exit /b 1
+)
+
+if not exist "requirements.txt" (
+    echo [!] requirements.txt not found.
+    echo [i] Python dependencies may need to be installed manually.
+    echo.
 )
 
 if not exist "%POWERSHELL_DIR%\winshield_baseline.ps1" (
@@ -166,62 +170,18 @@ if not exist "%POWERSHELL_DIR%\winshield_metadata.ps1" (
 )
 
 REM ------------------------------------------------------------
-REM PYTHON PACKAGE CHECKS
-REM ------------------------------------------------------------
-
-echo [*] Checking Python package dependencies...
-echo.
-
-python -c "import pandas, numpy, sklearn, joblib, requests, bs4, matplotlib" >nul 2>&1
-
-if %errorlevel% neq 0 (
-    echo [!] One or more Python packages are missing.
-    echo.
-    choice /C YN /M "Install required Python packages now?"
-
-    if errorlevel 2 (
-        echo.
-        echo [X] Python dependency installation declined.
-        echo.
-        echo Install manually with:
-        echo python -m pip install pandas numpy scikit-learn joblib requests beautifulsoup4 matplotlib
-        echo.
-        pause
-        exit /b 1
-    )
-
-    echo.
-    echo [*] Installing Python dependencies...
-    echo.
-
-    python -m pip install pandas numpy scikit-learn joblib requests beautifulsoup4 matplotlib
-
-    if %errorlevel% neq 0 (
-        echo.
-        echo [X] Failed to install Python dependencies.
-        echo.
-        pause
-        exit /b 1
-    )
-
-    echo.
-    echo [+] Python dependencies installed successfully.
-    echo.
-)
-
-REM ------------------------------------------------------------
 REM LAUNCH WINSHIELD+
 REM ------------------------------------------------------------
 
-echo [*] Launching WinShield+ master runner...
-echo.
-
-python "%MASTER_SCRIPT%"
+python "%MAIN_SCRIPT%"
 
 if %errorlevel% neq 0 (
     echo.
     echo [X] WinShield+ exited with an error.
     echo Exit code: %errorlevel%
+    echo.
+    echo Install dependencies with:
+    echo python -m pip install -r requirements.txt
     echo.
     pause
     exit /b 1
