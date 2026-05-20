@@ -6,12 +6,41 @@ with MSRC CVRF data, resolves supersedence, and exports a runtime scan
 for downstream prioritisation.
 """
 
+from __future__ import annotations
+
 import json
 import shutil
 import subprocess
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+
+# ------------------------------------------------------------
+# IMPORT PATH SETUP
+# ------------------------------------------------------------
+
+ROOT_DIR = Path(__file__).resolve().parents[2]
+SRC_DIR = ROOT_DIR / "src"
+
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
+
+
+from utils.winshield_banner import (  # noqa: E402
+    print_error,
+    print_info,
+    print_section,
+    print_step,
+    print_success,
+    print_warning,
+)
+from utils.winshield_paths import (  # noqa: E402
+    ensure_directory,
+    get_powershell_dir,
+    get_runtime_dir,
+)
 
 
 # ------------------------------------------------------------
@@ -27,26 +56,13 @@ ADAPTER_SCRIPT = "winshield_adapter.ps1"
 # PATHS
 # ------------------------------------------------------------
 
-SCRIPT_DIR = Path(__file__).resolve().parent
-ROOT_DIR = SCRIPT_DIR.parents[1]
-
-POWERSHELL_DIR = ROOT_DIR / "src" / "powershell"
-DATA_DIR = ROOT_DIR / "data"
-RUNTIME_DIR = DATA_DIR / "runtime"
-
-RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
+POWERSHELL_DIR = get_powershell_dir()
+RUNTIME_DIR = get_runtime_dir()
 
 
 # ------------------------------------------------------------
-# DISPLAY HELPERS
+# GENERAL HELPERS
 # ------------------------------------------------------------
-
-def print_section(title: str) -> None:
-    """Print a standard scanner section heading."""
-
-    print()
-    print(f"--- {title} ---")
-
 
 def relative_path(path: Path) -> str:
     """Return a repository-relative path for clean console output."""
@@ -57,20 +73,43 @@ def relative_path(path: Path) -> str:
         return str(path)
 
 
+def is_preserved_placeholder(path: Path) -> bool:
+    """Return True if the path is a preserved repository placeholder."""
+
+    return path.name == ".gitkeep"
+
+
 # ------------------------------------------------------------
 # RUNTIME CLEANUP
 # ------------------------------------------------------------
 
 def clear_runtime_directory() -> None:
-    """Clear existing runtime artefacts before starting a new scan."""
+    """
+    Clear existing runtime artefacts before starting a new scan.
 
-    if RUNTIME_DIR.exists():
-        shutil.rmtree(RUNTIME_DIR)
+    Preserves .gitkeep so the runtime directory remains tracked by Git.
+    """
 
-    RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
+    ensure_directory(RUNTIME_DIR)
 
-    print("[*] Clearing runtime artefacts")
-    print(f"[+] Runtime directory ready: {relative_path(RUNTIME_DIR)}")
+    removed_count = 0
+
+    for item in RUNTIME_DIR.iterdir():
+
+        if is_preserved_placeholder(item):
+            continue
+
+        if item.is_dir():
+            shutil.rmtree(item)
+            removed_count += 1
+            continue
+
+        item.unlink()
+        removed_count += 1
+
+    print_step("Clearing runtime artefacts")
+    print_success(f"Runtime directory ready: {relative_path(RUNTIME_DIR)}")
+    print_info(f"Runtime artefacts removed: {removed_count}")
 
 
 # ------------------------------------------------------------
@@ -85,6 +124,9 @@ def run_powershell_script(
 
     script_path = POWERSHELL_DIR / script_name
     args = extra_args or []
+
+    if not script_path.is_file():
+        raise RuntimeError(f"PowerShell script missing: {relative_path(script_path)}")
 
     command = [
         "powershell.exe",
@@ -348,7 +390,7 @@ def print_missing_kbs(
     print_section("Missing KBs")
 
     if not missing_kbs:
-        print("[+] No missing KBs detected")
+        print_success("No missing KBs detected")
         return
 
     for kb_id in missing_kbs:
@@ -356,7 +398,7 @@ def print_missing_kbs(
         months = ", ".join(entry.get("Months") or [])
         cve_count = len(entry.get("Cves") or [])
 
-        print(f"[!] {kb_id} | Months: {months} | CVEs: {cve_count}")
+        print_warning(f"{kb_id} | Months: {months} | CVEs: {cve_count}")
 
 
 # ------------------------------------------------------------
@@ -365,6 +407,8 @@ def print_missing_kbs(
 
 def export_runtime_scan(scan_result: dict[str, Any]) -> Path:
     """Write runtime scan output to the data/runtime directory."""
+
+    ensure_directory(RUNTIME_DIR)
 
     timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
     runtime_scan_path = RUNTIME_DIR / f"scan_{timestamp}.json"
@@ -382,116 +426,126 @@ def export_runtime_scan(scan_result: dict[str, Any]) -> Path:
 def main() -> int:
     """Run the WinShield+ system scan workflow."""
 
-    print_section("Runtime Preparation")
-    clear_runtime_directory()
+    try:
+        print_section("Runtime Preparation")
+        clear_runtime_directory()
 
-    print_section("Baseline")
-    print("[*] Collecting OS baseline")
-    baseline = run_powershell_script(BASELINE_SCRIPT)
+        print_section("Baseline")
+        print_step("Collecting OS baseline")
+        baseline = run_powershell_script(BASELINE_SCRIPT)
 
-    product_name_hint = baseline.get("ProductNameHint")
-    if not product_name_hint:
-        print("[X] ProductNameHint could not be resolved")
-        return 1
+        product_name_hint = baseline.get("ProductNameHint")
+        if not product_name_hint:
+            print_error("ProductNameHint could not be resolved")
+            return 1
 
-    print(
-        f"[+] OS: {baseline.get('OsName')} "
-        f"{baseline.get('DisplayVersion')} "
-        f"({baseline.get('Build')})"
-    )
-    print(f"[+] Product: {product_name_hint}")
+        print_success(
+            f"OS: {baseline.get('OsName')} "
+            f"{baseline.get('DisplayVersion')} "
+            f"({baseline.get('Build')})"
+        )
+        print_success(f"Product: {product_name_hint}")
 
-    print_section("Inventory")
-    print("[*] Collecting installed KB inventory")
-    inventory = run_powershell_script(INVENTORY_SCRIPT)
-    installed_kbs = set(inventory.get("AllInstalledKbs") or [])
+        print_section("Inventory")
+        print_step("Collecting installed KB inventory")
+        inventory = run_powershell_script(INVENTORY_SCRIPT)
+        installed_kbs = set(inventory.get("AllInstalledKbs") or [])
 
-    print(f"[+] Installed KBs: {len(installed_kbs)}")
+        print_success(f"Installed KBs: {len(installed_kbs)}")
 
-    print_section("MSRC Correlation")
-    print("[*] Building MonthId range")
-    month_ids = build_month_ids_from_lcu(baseline)
+        print_section("MSRC Correlation")
+        print_step("Building MonthId range")
+        month_ids = build_month_ids_from_lcu(baseline)
 
-    print(f"[+] Months requested: {', '.join(month_ids)}")
+        print_success(f"Months requested: {', '.join(month_ids)}")
 
-    merged_entries: dict[str, dict[str, Any]] = {}
-    months_with_entries: list[str] = []
+        merged_entries: dict[str, dict[str, Any]] = {}
+        months_with_entries: list[str] = []
 
-    print("[*] Querying MSRC CVRF data")
+        print_step("Querying MSRC CVRF data")
 
-    for month_chunk in chunk_list(month_ids, 3):
-        msrc_data = run_powershell_script(
-            ADAPTER_SCRIPT,
-            extra_args=[
-                "-MonthIds",
-                ",".join(month_chunk),
-                "-ProductNameHint",
-                product_name_hint,
-            ],
+        for month_chunk in chunk_list(month_ids, 3):
+            msrc_data = run_powershell_script(
+                ADAPTER_SCRIPT,
+                extra_args=[
+                    "-MonthIds",
+                    ",".join(month_chunk),
+                    "-ProductNameHint",
+                    product_name_hint,
+                ],
+            )
+
+            entries = msrc_data.get("KbEntries") or []
+            if entries:
+                months_with_entries.extend(month_chunk)
+                merge_kb_entries(merged_entries, entries)
+
+        if not merged_entries:
+            print_warning("No KB data returned from MSRC")
+            return 0
+
+        kb_entries = list(merged_entries.values())
+
+        for entry in kb_entries:
+            entry["Months"] = sorted(set(entry.get("Months") or []))
+            entry["Cves"] = sorted(set(entry.get("Cves") or []))
+            entry["Supersedes"] = sorted(set(entry.get("Supersedes") or []))
+            entry["UpdateType"] = "Superseding" if entry["Supersedes"] else "Standalone"
+
+        print_success(f"KB entries mapped: {len(kb_entries)}")
+        print_success(f"Months with entries: {len(set(months_with_entries))}")
+
+        logical_present_kbs, superseded_by = compute_supersedence(
+            kb_entries=kb_entries,
+            installed_kbs=installed_kbs,
         )
 
-        entries = msrc_data.get("KbEntries") or []
-        if entries:
-            months_with_entries.extend(month_chunk)
-            merge_kb_entries(merged_entries, entries)
+        expected_kbs = {entry["KB"] for entry in kb_entries}
+        missing_kbs = sorted(expected_kbs - logical_present_kbs)
 
-    if not merged_entries:
-        print("[!] No KB data returned from MSRC")
+        print_section("Summary")
+        print_success(f"Expected KBs: {len(expected_kbs)}")
+        print_success(f"Missing KBs: {len(missing_kbs)}")
+
+        print_kb_table(
+            kb_entries=kb_entries,
+            installed_kbs=installed_kbs,
+            logical_present_kbs=logical_present_kbs,
+            superseded_by=superseded_by,
+        )
+
+        print_missing_kbs(
+            missing_kbs=missing_kbs,
+            kb_entries=kb_entries,
+        )
+
+        scan_result = {
+            "Baseline": baseline,
+            "InstalledKbs": sorted(installed_kbs),
+            "MonthsRequested": month_ids,
+            "MonthsWithEntries": sorted(set(months_with_entries)),
+            "KbEntries": sorted(kb_entries, key=lambda item: item["KB"]),
+            "MissingKbs": missing_kbs,
+        }
+
+        runtime_scan_path = export_runtime_scan(scan_result)
+
+        print_section("Export")
+        print_success(f"Runtime scan saved: {relative_path(runtime_scan_path)}")
+
+        print()
+        print_success("Scan System completed")
+
         return 0
 
-    kb_entries = list(merged_entries.values())
+    except KeyboardInterrupt:
+        print()
+        print_warning("Scan System cancelled")
+        return 130
 
-    for entry in kb_entries:
-        entry["Months"] = sorted(set(entry.get("Months") or []))
-        entry["Cves"] = sorted(set(entry.get("Cves") or []))
-        entry["Supersedes"] = sorted(set(entry.get("Supersedes") or []))
-        entry["UpdateType"] = "Superseding" if entry["Supersedes"] else "Standalone"
-
-    print(f"[+] KB entries mapped: {len(kb_entries)}")
-    print(f"[+] Months with entries: {len(set(months_with_entries))}")
-
-    logical_present_kbs, superseded_by = compute_supersedence(
-        kb_entries=kb_entries,
-        installed_kbs=installed_kbs,
-    )
-
-    expected_kbs = {entry["KB"] for entry in kb_entries}
-    missing_kbs = sorted(expected_kbs - logical_present_kbs)
-
-    print_section("Summary")
-    print(f"[+] Expected KBs: {len(expected_kbs)}")
-    print(f"[+] Missing KBs: {len(missing_kbs)}")
-
-    print_kb_table(
-        kb_entries=kb_entries,
-        installed_kbs=installed_kbs,
-        logical_present_kbs=logical_present_kbs,
-        superseded_by=superseded_by,
-    )
-
-    print_missing_kbs(
-        missing_kbs=missing_kbs,
-        kb_entries=kb_entries,
-    )
-
-    scan_result = {
-        "Baseline": baseline,
-        "InstalledKbs": sorted(installed_kbs),
-        "MonthsRequested": month_ids,
-        "MonthsWithEntries": sorted(set(months_with_entries)),
-        "KbEntries": sorted(kb_entries, key=lambda item: item["KB"]),
-        "MissingKbs": missing_kbs,
-    }
-
-    runtime_scan_path = export_runtime_scan(scan_result)
-
-    print_section("Export")
-    print(f"[+] Runtime scan saved: {relative_path(runtime_scan_path)}")
-
-    print()
-    print("[+] Scan System completed")
-
-    return 0
+    except Exception as exc:
+        print_error(f"Scan System failed: {exc}")
+        return 1
 
 
 # ------------------------------------------------------------
