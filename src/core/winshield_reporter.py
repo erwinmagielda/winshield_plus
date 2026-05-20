@@ -13,6 +13,7 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from utils.winshield_paths import load_config
 
 
 # ------------------------------------------------------------
@@ -46,9 +47,15 @@ REPORT_PATH = get_runtime_report_path()
 # REPORT SETTINGS
 # ------------------------------------------------------------
 
-TOOL_NAME = "WinShield+"
-TOOL_VERSION = "0.1.0"
 REPORT_TITLE = "WinShield+ Runtime Risk Report"
+TOOL_NAME = "WinShield+"
+
+def get_tool_version() -> str:
+    """Return configured tool version."""
+
+    config = load_config()
+
+    return str(config.get("version", "unknown"))
 
 
 # ------------------------------------------------------------
@@ -173,7 +180,7 @@ def build_report(results: list[dict[str, Any]]) -> str:
     lines.append("")
     lines.append(f"**Tool:** {TOOL_NAME}")
     lines.append("")
-    lines.append(f"**Version:** {TOOL_VERSION}")
+    lines.append(f"**Version:** {get_tool_version()}")
     lines.append("")
     lines.append("## Summary")
     lines.append("")
