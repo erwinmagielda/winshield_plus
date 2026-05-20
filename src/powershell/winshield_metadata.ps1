@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    WinShield+ vulnerability metadata collector.
+    WinShield+ vulnerability metadata.
 
 .DESCRIPTION
     Retrieves vulnerability metadata from Microsoft Security Response Center (MSRC)

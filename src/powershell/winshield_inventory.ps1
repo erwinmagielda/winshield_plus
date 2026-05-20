@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    WinShield+ update inventory collector.
+    WinShield+ inventory collector.
 
 .DESCRIPTION
     Collects installed Windows update identifiers using Get-HotFix and Get-WindowsPackage.
