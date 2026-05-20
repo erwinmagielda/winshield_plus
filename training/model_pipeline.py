@@ -10,6 +10,8 @@ Requires data/dataset/validated_dataset.csv to already exist.
 Exports a model pipeline summary to results/model_pipeline_summary.json.
 """
 
+from __future__ import annotations
+
 import json
 import subprocess
 import sys
@@ -19,16 +21,42 @@ from typing import Any
 
 
 # ------------------------------------------------------------
+# IMPORT PATH SETUP
+# ------------------------------------------------------------
+
+ROOT_DIR = Path(__file__).resolve().parents[1]
+SRC_DIR = ROOT_DIR / "src"
+
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
+
+
+from utils.winshield_banner import (
+    print_error,
+    print_section,
+    print_step,
+    print_success,
+    print_warning,
+)
+from utils.winshield_paths import (
+    ensure_directory,
+    get_dataset_dir,
+    get_models_dir,
+    get_results_dir,
+)
+
+
+# ------------------------------------------------------------
 # PATHS
 # ------------------------------------------------------------
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-ROOT_DIR = SCRIPT_DIR.parent
 
-RESULTS_DIR = ROOT_DIR / "results"
-MODELS_DIR = ROOT_DIR / "models"
+DATASET_DIR = get_dataset_dir()
+RESULTS_DIR = get_results_dir()
+MODELS_DIR = get_models_dir()
 
-VALIDATED_DATASET_PATH = ROOT_DIR / "data" / "dataset" / "validated_dataset.csv"
+VALIDATED_DATASET_PATH = DATASET_DIR / "validated_dataset.csv"
 
 REGRESSION_SCRIPT = SCRIPT_DIR / "train_regression.py"
 CLASSIFICATION_SCRIPT = SCRIPT_DIR / "train_classification.py"
@@ -37,8 +65,6 @@ CLUSTERING_SCRIPT = SCRIPT_DIR / "train_clustering.py"
 SUMMARY_PATH = RESULTS_DIR / "model_pipeline_summary.json"
 
 PYTHON_EXE = sys.executable
-
-RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 # ------------------------------------------------------------
@@ -72,11 +98,13 @@ EXPECTED_ARTEFACTS: dict[str, list[Path]] = {
 # DISPLAY AND SUMMARY HELPERS
 # ------------------------------------------------------------
 
-def print_section(title: str) -> None:
-    """Print a standard model pipeline section heading."""
+def relative_path(path: Path) -> str:
+    """Return a repository-relative path for clean output."""
 
-    print()
-    print(f"--- {title} ---")
+    try:
+        return path.relative_to(ROOT_DIR).as_posix()
+    except ValueError:
+        return str(path)
 
 
 def utc_timestamp() -> str:
@@ -85,13 +113,19 @@ def utc_timestamp() -> str:
     return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
-def relative_path(path: Path) -> str:
-    """Return a repository-relative path for clean output."""
+def print_pipeline_header() -> None:
+    """Print the model pipeline header without extra trailing spacing."""
 
-    try:
-        return str(path.relative_to(ROOT_DIR))
-    except ValueError:
-        return str(path)
+    print()
+    print("Model Pipeline")
+    print("=" * 60)
+
+
+def prepare_pipeline_directories() -> None:
+    """Ensure model pipeline output directories exist."""
+
+    ensure_directory(RESULTS_DIR)
+    ensure_directory(MODELS_DIR)
 
 
 def build_artefact_summary() -> dict[str, Any]:
@@ -117,10 +151,12 @@ def build_artefact_summary() -> dict[str, Any]:
 def save_model_pipeline_summary(summary: dict[str, Any]) -> None:
     """Save model pipeline summary JSON."""
 
+    ensure_directory(RESULTS_DIR)
+
     with SUMMARY_PATH.open("w", encoding="utf-8") as file:
         json.dump(summary, file, indent=2)
 
-    print(f"[+] Summary saved: {relative_path(SUMMARY_PATH)}")
+    print_success(f"Summary saved: {relative_path(SUMMARY_PATH)}")
 
 
 # ------------------------------------------------------------
@@ -157,7 +193,7 @@ def run_stage(label: str, script_path: Path, args: list[str]) -> dict[str, Any]:
     }
 
     if not script_path.is_file():
-        print(f"[X] Stage script missing: {relative_path(script_path)}")
+        print_error(f"Stage script missing: {relative_path(script_path)}")
 
         stage_summary["finished_at_utc"] = utc_timestamp()
         stage_summary["exit_code"] = 1
@@ -165,7 +201,7 @@ def run_stage(label: str, script_path: Path, args: list[str]) -> dict[str, Any]:
 
         return stage_summary
 
-    print(f"[*] Running {label}")
+    print_step(f"Running {label}")
 
     try:
         result = subprocess.run(
@@ -178,7 +214,7 @@ def run_stage(label: str, script_path: Path, args: list[str]) -> dict[str, Any]:
 
     except KeyboardInterrupt:
         print()
-        print("[!] Model Pipeline cancelled")
+        print_warning("Model Pipeline cancelled")
 
         stage_summary["exit_code"] = 130
         stage_summary["status"] = "cancelled"
@@ -187,7 +223,7 @@ def run_stage(label: str, script_path: Path, args: list[str]) -> dict[str, Any]:
         return stage_summary
 
     except Exception as exc:
-        print(f"[X] {label} failed to launch: {exc}")
+        print_error(f"{label} failed to launch: {exc}")
 
         stage_summary["exit_code"] = 1
         stage_summary["status"] = "failed_to_launch"
@@ -200,10 +236,10 @@ def run_stage(label: str, script_path: Path, args: list[str]) -> dict[str, Any]:
 
     if stage_summary["exit_code"] == 0:
         stage_summary["status"] = "completed"
-        print(f"[+] {label} completed")
+        print_success(f"{label} completed")
     else:
         stage_summary["status"] = "failed"
-        print(f"[X] {label} failed: exit code {stage_summary['exit_code']}")
+        print_error(f"{label} failed: exit code {stage_summary['exit_code']}")
 
     return stage_summary
 
@@ -215,10 +251,8 @@ def run_stage(label: str, script_path: Path, args: list[str]) -> dict[str, Any]:
 def main() -> int:
     """Run the WinShield+ model training pipeline."""
 
-    print()
-    print("=" * 60)
-    print("WinShield+ - Model Pipeline")
-    print("=" * 60)
+    prepare_pipeline_directories()
+    print_pipeline_header()
 
     summary: dict[str, Any] = {
         "pipeline": "model_pipeline",
@@ -240,12 +274,12 @@ def main() -> int:
     }
 
     print_section("Pre-flight")
-    print(f"[*] Checking input: {relative_path(VALIDATED_DATASET_PATH)}")
+    print_step(f"Checking input: {relative_path(VALIDATED_DATASET_PATH)}")
 
     inputs_valid, error_message = validate_required_inputs()
 
     if not inputs_valid:
-        print(f"[X] {error_message}")
+        print_error(str(error_message))
 
         summary["status"] = "failed"
         summary["error"] = error_message
@@ -254,7 +288,7 @@ def main() -> int:
 
         return 1
 
-    print("[+] Input dataset ready")
+    print_success("Input dataset ready")
 
     print_section("Training")
 
@@ -273,7 +307,7 @@ def main() -> int:
             save_model_pipeline_summary(summary)
 
             print()
-            print("[X] Model Pipeline stopped")
+            print_error("Model Pipeline stopped")
             return int(stage_summary["exit_code"])
 
     summary["status"] = "completed"
@@ -283,7 +317,7 @@ def main() -> int:
 
     for group, artefacts in summary["artefacts"].items():
         existing_count = sum(1 for artefact in artefacts if artefact["exists"])
-        print(f"[+] {group.title()}: {existing_count}/{len(artefacts)} ready")
+        print_success(f"{group.title()}: {existing_count}/{len(artefacts)} ready")
 
         for artefact in artefacts:
             status = "ready" if artefact["exists"] else "missing"
@@ -293,7 +327,7 @@ def main() -> int:
     save_model_pipeline_summary(summary)
 
     print()
-    print("[+] Model Pipeline completed")
+    print_success("Model Pipeline completed")
 
     return 0
 
