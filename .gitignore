@@ -58,6 +58,26 @@ models/*
 
 results/*
 !results/.gitkeep
+!results/reports/
+!results/reports/.gitkeep
+!results/rankings/
+!results/rankings/.gitkeep
+!results/summaries/
+!results/summaries/.gitkeep
+!results/charts/
+!results/charts/.gitkeep
+
+results/reports/*
+!results/reports/.gitkeep
+
+results/rankings/*
+!results/rankings/.gitkeep
+
+results/summaries/*
+!results/summaries/.gitkeep
+
+results/charts/*
+!results/charts/.gitkeep
 
 
 # ------------------------------------------------------------
