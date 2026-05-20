@@ -43,7 +43,7 @@ TRAINING_DIR = ROOT_DIR / "training"
 
 DATA_PIPELINE_SCRIPT = TRAINING_DIR / "data_pipeline.py"
 MODEL_PIPELINE_SCRIPT = TRAINING_DIR / "model_pipeline.py"
-CLEAR_RUN_SCRIPT = TRAINING_DIR / "clear_run.py"
+CLEAR_ARTEFACTS_SCRIPT = TRAINING_DIR / "clear_artefacts.py"
 
 SCANNER_SCRIPT = CORE_DIR / "winshield_scanner.py"
 PRIORITISER_SCRIPT = CORE_DIR / "winshield_prioritiser.py"
@@ -98,7 +98,7 @@ STAGES: dict[str, tuple[str, Path]] = {
     "1": ("Scan System", SCANNER_SCRIPT),
     "3": ("Download Update", DOWNLOADER_SCRIPT),
     "4": ("Install Update", INSTALLER_SCRIPT),
-    "5": ("Clear Artefacts", CLEAR_RUN_SCRIPT),
+    "5": ("Clear Artefacts", CLEAR_ARTEFACTS_SCRIPT),
 }
 
 

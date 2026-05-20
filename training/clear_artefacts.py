@@ -1,8 +1,8 @@
 """
 WinShield+ artefact cleanup utility.
 
-Removes generated pipeline artefacts while preserving source training scans
-and repository placeholder files.
+Removes generated pipeline artefacts, Python cache files, and runtime output
+while preserving source training scans and repository placeholder files.
 """
 
 from __future__ import annotations
@@ -116,6 +116,28 @@ def clear_directory_contents(directory: Path) -> int:
     return removed_count
 
 
+def clear_python_cache() -> int:
+    """
+    Remove Python cache folders and compiled bytecode files.
+
+    Returns the number of removed cache artefacts.
+    """
+
+    removed_count = 0
+
+    for cache_dir in ROOT_DIR.rglob("__pycache__"):
+        if cache_dir.is_dir():
+            shutil.rmtree(cache_dir)
+            removed_count += 1
+
+    for bytecode_file in ROOT_DIR.rglob("*.pyc"):
+        if bytecode_file.is_file():
+            bytecode_file.unlink()
+            removed_count += 1
+
+    return removed_count
+
+
 def confirm_cleanup() -> bool:
     """Ask the operator to confirm cleanup before deleting generated files."""
 
@@ -125,6 +147,7 @@ def confirm_cleanup() -> bool:
     for directory in GENERATED_DIRS.values():
         print(f"    - {relative_path(directory)}")
 
+    print("    - Python cache artefacts")
     print()
     print_success(f"Preserved: {relative_path(SCANS_DIR)}")
     print()
@@ -162,17 +185,21 @@ def main() -> int:
     print_step("Clearing generated artefacts")
 
     removed_total = 0
-    removed_by_directory: dict[str, int] = {}
+    removed_by_category: dict[str, int] = {}
 
     for label, directory in GENERATED_DIRS.items():
         removed_count = clear_directory_contents(directory)
-        removed_by_directory[label] = removed_count
+        removed_by_category[label] = removed_count
         removed_total += removed_count
+
+    pycache_count = clear_python_cache()
+    removed_by_category["pycache"] = pycache_count
+    removed_total += pycache_count
 
     print()
     print_success(f"Removed artefacts: {removed_total}")
 
-    for label, removed_count in removed_by_directory.items():
+    for label, removed_count in removed_by_category.items():
         print(f"    {label}: {removed_count}")
 
     print()
