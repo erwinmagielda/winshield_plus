@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import sys
+from core.winshield_reporter import generate_report
 from pathlib import Path
 from typing import Any
 
@@ -450,6 +451,9 @@ def main() -> int:
 
         print_section("Export")
         save_results(predictions)
+
+        report_path = generate_report()
+        print_success(f"Report saved: {relative_path(report_path)}")
 
         print()
         print_success("Risk Prioritisation completed")

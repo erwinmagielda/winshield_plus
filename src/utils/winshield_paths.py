@@ -267,6 +267,12 @@ def get_validated_runtime_path() -> Path:
     return get_runtime_dir() / "validated_runtime.csv"
 
 
+def get_runtime_report_path() -> Path:
+    """Return the runtime Markdown report output path."""
+
+    return get_results_dir() / "winshield_report.md"
+
+
 # ------------------------------------------------------------
 # DIRECTORY PREPARATION
 # ------------------------------------------------------------
