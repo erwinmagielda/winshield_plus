@@ -7,9 +7,12 @@ metadata, optionally labels training data, validates model-ready rows, and
 exports a pipeline summary to results/.
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import subprocess
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -18,22 +21,43 @@ import pandas as pd
 
 
 # ------------------------------------------------------------
+# IMPORT PATH SETUP
+# ------------------------------------------------------------
+
+ROOT_DIR = Path(__file__).resolve().parents[1]
+SRC_DIR = ROOT_DIR / "src"
+
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
+
+
+from utils.winshield_banner import (
+    print_error,
+    print_info,
+    print_section,
+    print_step,
+    print_success,
+    print_warning,
+)
+from utils.winshield_paths import (
+    ensure_directory,
+    get_dataset_dir,
+    get_powershell_dir,
+    get_results_dir,
+    get_runtime_dir,
+    get_scan_source_dir,
+)
+
+
+# ------------------------------------------------------------
 # PATHS
 # ------------------------------------------------------------
 
-BASE_DIR = Path(__file__).resolve().parents[1]
-DATA_DIR = BASE_DIR / "data"
-
-SCANS_DIR = DATA_DIR / "scans"
-RUNTIME_DIR = DATA_DIR / "runtime"
-DATASET_DIR = DATA_DIR / "dataset"
-RESULTS_DIR = BASE_DIR / "results"
-
-POWERSHELL_SCRIPT = BASE_DIR / "src" / "powershell" / "winshield_metadata.ps1"
-
-RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
-DATASET_DIR.mkdir(parents=True, exist_ok=True)
-RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+SCANS_DIR = get_scan_source_dir()
+RUNTIME_DIR = get_runtime_dir()
+DATASET_DIR = get_dataset_dir()
+RESULTS_DIR = get_results_dir()
+POWERSHELL_SCRIPT = get_powershell_dir() / "winshield_metadata.ps1"
 
 
 # ------------------------------------------------------------
@@ -61,18 +85,11 @@ def parse_args() -> argparse.Namespace:
 # DISPLAY AND SUMMARY HELPERS
 # ------------------------------------------------------------
 
-def print_section(title: str) -> None:
-    """Print a standard data pipeline section heading."""
-
-    print()
-    print(f"--- {title} ---")
-
-
 def relative_path(path: Path) -> str:
     """Return a repository-relative path for clean output."""
 
     try:
-        return str(path.relative_to(BASE_DIR))
+        return path.relative_to(ROOT_DIR).as_posix()
     except ValueError:
         return str(path)
 
@@ -83,15 +100,32 @@ def utc_timestamp() -> str:
     return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
+def print_pipeline_header(mode: str) -> None:
+    """Print the data pipeline header without extra trailing spacing."""
+
+    print()
+    print(f"Data Pipeline ({mode})")
+    print("=" * 60)
+
+
+def prepare_pipeline_directories() -> None:
+    """Ensure required pipeline output directories exist."""
+
+    for directory in [RUNTIME_DIR, DATASET_DIR, RESULTS_DIR]:
+        ensure_directory(directory)
+
+
 def save_pipeline_summary(mode: str, summary: dict[str, Any]) -> Path:
     """Save pipeline summary JSON to the results directory."""
+
+    ensure_directory(RESULTS_DIR)
 
     output_path = RESULTS_DIR / f"{mode}_pipeline_summary.json"
 
     with output_path.open("w", encoding="utf-8") as file:
         json.dump(summary, file, indent=2)
 
-    print(f"[+] Summary saved: {relative_path(output_path)}")
+    print_success(f"Summary saved: {relative_path(output_path)}")
 
     return output_path
 
@@ -144,8 +178,8 @@ def flatten_scans(mode: str) -> tuple[Path, dict[str, Any]]:
         output_path = RUNTIME_DIR / "flattened_runtime.csv"
         source_directory = RUNTIME_DIR
 
-    print(f"[*] Source directory: {relative_path(source_directory)}")
-    print(f"[*] Scan files: {len(scan_files)}")
+    print_step(f"Source directory: {relative_path(source_directory)}")
+    print_step(f"Scan files: {len(scan_files)}")
 
     rows: list[dict[str, Any]] = []
 
@@ -185,10 +219,10 @@ def flatten_scans(mode: str) -> tuple[Path, dict[str, Any]]:
         "output": relative_path(output_path),
     }
 
-    print(f"[+] Rows created: {summary['rows_created']}")
-    print(f"[+] Unique KBs: {summary['unique_kbs']}")
-    print(f"[+] Unique CVEs: {summary['unique_cves']}")
-    print(f"[+] Output: {relative_path(output_path)}")
+    print_success(f"Rows created: {summary['rows_created']}")
+    print_success(f"Unique KBs: {summary['unique_kbs']}")
+    print_success(f"Unique CVEs: {summary['unique_cves']}")
+    print_success(f"Output: {relative_path(output_path)}")
 
     return output_path, summary
 
@@ -251,6 +285,9 @@ def parse_cvss(vector: str | None) -> dict[str, str | None]:
 
 def fetch_msrc_metadata(month_ids: list[str]) -> dict[str, Any]:
     """Fetch CVE metadata from MSRC for the supplied MonthIds."""
+
+    if not POWERSHELL_SCRIPT.is_file():
+        raise RuntimeError(f"PowerShell script missing: {relative_path(POWERSHELL_SCRIPT)}")
 
     result = subprocess.run(
         [
@@ -325,7 +362,7 @@ def enrich_data(input_csv: Path) -> tuple[Path, dict[str, Any]]:
         if str(month).strip()
     )
 
-    print(f"[*] Collecting MSRC metadata: {len(month_ids)} MonthIds")
+    print_step(f"Collecting MSRC metadata: {len(month_ids)} MonthIds")
 
     metadata = fetch_msrc_metadata(month_ids)
 
@@ -337,13 +374,13 @@ def enrich_data(input_csv: Path) -> tuple[Path, dict[str, Any]]:
     matched_cves = [cve for cve in requested_cves if cve in metadata]
     missing_cves = [cve for cve in requested_cves if cve not in metadata]
 
-    print(f"[+] Metadata CVEs returned: {len(metadata)}")
-    print(f"[+] Requested CVEs: {len(requested_cves)}")
-    print(f"[+] Matched CVEs: {len(matched_cves)}")
-    print(f"[i] Missing CVEs: {len(missing_cves)}")
+    print_success(f"Metadata CVEs returned: {len(metadata)}")
+    print_success(f"Requested CVEs: {len(requested_cves)}")
+    print_success(f"Matched CVEs: {len(matched_cves)}")
+    print_info(f"Missing CVEs: {len(missing_cves)}")
 
     if missing_cves:
-        print("[i] First missing CVEs:")
+        print_info("First missing CVEs:")
         for cve_id in missing_cves[:10]:
             print(f"    - {cve_id}")
 
@@ -383,7 +420,7 @@ def enrich_data(input_csv: Path) -> tuple[Path, dict[str, Any]]:
         "output": relative_path(output_path),
     }
 
-    print(f"[+] Output: {relative_path(output_path)}")
+    print_success(f"Output: {relative_path(output_path)}")
 
     return output_path, summary
 
@@ -444,12 +481,12 @@ def label_training_data(input_csv: Path) -> tuple[Path, dict[str, Any]]:
         "output": relative_path(output_path),
     }
 
-    print(f"[+] Rows labelled: {summary['rows_labelled']}")
+    print_success(f"Rows labelled: {summary['rows_labelled']}")
 
     for label, count in label_distribution.items():
-        print(f"[i] {label}: {count}")
+        print_info(f"{label}: {count}")
 
-    print(f"[+] Output: {relative_path(output_path)}")
+    print_success(f"Output: {relative_path(output_path)}")
 
     return output_path, summary
 
@@ -514,13 +551,13 @@ def validate_data(input_csv: Path, mode: str) -> tuple[Path, dict[str, Any]]:
         "output": relative_path(output_path),
     }
 
-    print(f"[+] Rows before: {before_count}")
-    print(f"[+] Rows after: {after_count}")
-    print(f"[i] Rows dropped: {dropped_count}")
-    print(f"[+] Output: {relative_path(output_path)}")
+    print_success(f"Rows before: {before_count}")
+    print_success(f"Rows after: {after_count}")
+    print_info(f"Rows dropped: {dropped_count}")
+    print_success(f"Output: {relative_path(output_path)}")
 
     if after_count == 0:
-        print("[!] Validation produced an empty dataset")
+        print_warning("Validation produced an empty dataset")
 
     return output_path, summary
 
@@ -532,10 +569,9 @@ def validate_data(input_csv: Path, mode: str) -> tuple[Path, dict[str, Any]]:
 def run_pipeline(mode: str) -> Path:
     """Run the selected WinShield+ data pipeline mode."""
 
-    print()
-    print("=" * 60)
-    print(f"WinShield+ - Data Pipeline ({mode})")
-    print("=" * 60)
+    prepare_pipeline_directories()
+
+    print_pipeline_header(mode)
 
     summary: dict[str, Any] = {
         "pipeline": "data_pipeline",
@@ -563,13 +599,32 @@ def run_pipeline(mode: str) -> Path:
     summary["status"] = "completed"
 
     print_section("Summary")
-    print(f"[+] Final output: {relative_path(output_path)}")
+    print_success(f"Final output: {relative_path(output_path)}")
     save_pipeline_summary(mode, summary)
 
     print()
-    print(f"[+] Data Pipeline ({mode}) completed")
+    print_success(f"Data Pipeline ({mode}) completed")
 
     return output_path
+
+
+def main() -> int:
+    """Run the WinShield+ data pipeline entry point."""
+
+    arguments = parse_args()
+
+    try:
+        run_pipeline(arguments.mode)
+        return 0
+
+    except KeyboardInterrupt:
+        print()
+        print_warning("Data Pipeline cancelled")
+        return 130
+
+    except Exception as exc:
+        print_error(f"Data Pipeline failed: {exc}")
+        return 1
 
 
 # ------------------------------------------------------------
@@ -577,5 +632,4 @@ def run_pipeline(mode: str) -> Path:
 # ------------------------------------------------------------
 
 if __name__ == "__main__":
-    arguments = parse_args()
-    run_pipeline(arguments.mode)
+    raise SystemExit(main())
