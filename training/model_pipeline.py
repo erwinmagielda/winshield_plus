@@ -98,7 +98,7 @@ EXPECTED_ARTEFACTS: dict[str, list[Path]] = {
 
 
 # ------------------------------------------------------------
-# DISPLAY AND SUMMARY HELPERS
+# GENERAL HELPERS
 # ------------------------------------------------------------
 
 def relative_path(path: Path) -> str:
@@ -111,13 +111,13 @@ def relative_path(path: Path) -> str:
 
 
 def utc_timestamp() -> str:
-    """Return a compact UTC timestamp."""
+    """Return UTC timestamp for summary metadata."""
 
-    return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return datetime.now(UTC).isoformat()
 
 
 def print_pipeline_header() -> None:
-    """Print the model pipeline header without extra trailing spacing."""
+    """Print model pipeline header."""
 
     print()
     print("Model Pipeline")
@@ -130,6 +130,157 @@ def prepare_pipeline_directories() -> None:
     ensure_directory(RESULTS_DIR)
     ensure_directory(MODELS_DIR)
 
+
+def validate_required_inputs() -> tuple[bool, str | None]:
+    """Check that the validated training dataset exists before model training."""
+
+    if not VALIDATED_DATASET_PATH.is_file():
+        return (
+            False,
+            "Validated dataset missing. Run Data Pipeline in training mode first.",
+        )
+
+    return True, None
+
+
+# ------------------------------------------------------------
+# OUTPUT PARSING
+# ------------------------------------------------------------
+
+def extract_float(output: str, labels: list[str]) -> float | None:
+    """Extract a float metric from training output."""
+
+    for label in labels:
+        pattern = rf"{re.escape(label)}\s*:\s*([-+]?\d+(?:\.\d+)?)"
+        match = re.search(pattern, output, flags=re.IGNORECASE)
+
+        if match:
+            return float(match.group(1))
+
+    return None
+
+
+def extract_int(output: str, labels: list[str]) -> int | None:
+    """Extract an integer metric from training output."""
+
+    for label in labels:
+        pattern = rf"{re.escape(label)}\s*:\s*(\d+)"
+        match = re.search(pattern, output, flags=re.IGNORECASE)
+
+        if match:
+            return int(match.group(1))
+
+    return None
+
+
+def extract_first_path(output: str, terms: list[str]) -> str | None:
+    """Extract the first saved path matching any term."""
+
+    for line in output.splitlines():
+        stripped = line.strip()
+        lowered = stripped.lower()
+
+        if "saved:" not in lowered:
+            continue
+
+        if not any(term.lower() in lowered for term in terms):
+            continue
+
+        _, _, path = stripped.partition(":")
+        path = path.strip()
+
+        if path:
+            return path
+
+    return None
+
+
+def build_evaluation_summary(stage_key: str, output: str) -> dict[str, Any]:
+    """Build structured evaluation values from training output."""
+
+    if stage_key == "regression":
+        return {
+            "metrics": {
+                "mae": extract_float(output, ["MAE", "Mean absolute error"]),
+                "rmse": extract_float(output, ["RMSE", "Root mean squared error"]),
+                "r2": extract_float(output, ["R2", "R2 score", "R-squared"]),
+            },
+            "model_path": extract_first_path(output, ["model saved", "regression_model"]),
+        }
+
+    if stage_key == "classification":
+        return {
+            "metrics": {
+                "accuracy": extract_float(output, ["Accuracy"]),
+                "weighted_f1": extract_float(output, ["Weighted F1", "F1 weighted"]),
+            },
+            "model_path": extract_first_path(output, ["model saved", "classification_model"]),
+        }
+
+    if stage_key == "clustering":
+        return {
+            "metrics": {
+                "clusters_created": extract_int(
+                    output,
+                    ["Clusters created", "Clusters", "Selected clusters"],
+                ),
+            },
+            "elbow_chart_path": extract_first_path(output, ["elbow chart", "elbow"]),
+            "model_path": extract_first_path(output, ["model saved", "clustering_model"]),
+        }
+
+    return {
+        "metrics": {},
+        "model_path": None,
+    }
+
+
+def print_metric(label: str, value: Any, decimals: int = 4) -> None:
+    """Print one metric line."""
+
+    if value is None:
+        print_warning(f"{label}: not available")
+        return
+
+    if isinstance(value, int):
+        print_success(f"{label}: {value}")
+        return
+
+    print_success(f"{label}: {float(value):.{decimals}f}")
+
+
+def print_stage_evaluation(stage_key: str, evaluation: dict[str, Any]) -> None:
+    """Print clean model evaluation details."""
+
+    metrics = evaluation.get("metrics", {})
+
+    if stage_key == "regression":
+        print_metric("MAE", metrics.get("mae"))
+        print_metric("RMSE", metrics.get("rmse"))
+        print_metric("R2", metrics.get("r2"))
+
+    elif stage_key == "classification":
+        print_metric("Accuracy", metrics.get("accuracy"))
+        print_metric("Weighted F1", metrics.get("weighted_f1"))
+
+    elif stage_key == "clustering":
+        print_metric("Clusters created", metrics.get("clusters_created"), decimals=0)
+
+        elbow_chart_path = evaluation.get("elbow_chart_path")
+        if elbow_chart_path:
+            print_success(f"Elbow chart saved: {elbow_chart_path}")
+
+    model_path = evaluation.get("model_path")
+
+    if model_path:
+        print_success(f"Model saved: {model_path}")
+    else:
+        print_warning("Model path not reported by training script")
+
+
+# ------------------------------------------------------------
+# ARTEFACT SUMMARY
+# ------------------------------------------------------------
 
 def build_artefact_summary() -> dict[str, Any]:
     """Summarise expected model artefacts after training."""
@@ -163,169 +314,6 @@ def save_model_pipeline_summary(summary: dict[str, Any]) -> None:
 
 
 # ------------------------------------------------------------
-# PRE-FLIGHT CHECKS
-# ------------------------------------------------------------
-
-def validate_required_inputs() -> tuple[bool, str | None]:
-    """Check that the validated training dataset exists before model training."""
-
-    if not VALIDATED_DATASET_PATH.is_file():
-        return (
-            False,
-            "Validated dataset missing. Run Data Pipeline in training mode first.",
-        )
-
-    return True, None
-
-
-# ------------------------------------------------------------
-# OUTPUT PARSING
-# ------------------------------------------------------------
-
-def extract_metric(output: str, label: str) -> float | None:
-    """Extract a numeric metric from training script output."""
-
-    pattern = rf"\[\+\]\s+{re.escape(label)}:\s+([-+]?\d+(?:\.\d+)?)"
-    match = re.search(pattern, output)
-
-    if not match:
-        return None
-
-    return float(match.group(1))
-
-
-def extract_int_metric(output: str, label: str) -> int | None:
-    """Extract an integer metric from training script output."""
-
-    pattern = rf"\[\+\]\s+{re.escape(label)}:\s+(\d+)"
-    match = re.search(pattern, output)
-
-    if not match:
-        return None
-
-    return int(match.group(1))
-
-
-def extract_saved_paths(output: str) -> list[str]:
-    """Extract saved artefact paths from training script output."""
-
-    paths: list[str] = []
-
-    for line in output.splitlines():
-        stripped = line.strip()
-
-        if not stripped.startswith("[+]"):
-            continue
-
-        if "saved:" not in stripped.lower():
-            continue
-
-        _, _, path = stripped.partition(":")
-        path = path.strip()
-
-        if path:
-            paths.append(path)
-
-    return paths
-
-
-def extract_key_lines(output: str) -> list[str]:
-    """Extract useful success and info lines from training output."""
-
-    useful_prefixes = ("[+]", "[i]")
-    useful_terms = (
-        "MAE:",
-        "RMSE:",
-        "R2:",
-        "Accuracy:",
-        "Weighted F1:",
-        "Clusters created:",
-        "Elbow chart saved:",
-        "Cluster chart saved:",
-        "Model saved:",
-        "Preprocessor saved:",
-        "Feature list saved:",
-    )
-
-    key_lines: list[str] = []
-
-    for line in output.splitlines():
-        stripped = line.strip()
-
-        if not stripped.startswith(useful_prefixes):
-            continue
-
-        if any(term in stripped for term in useful_terms):
-            key_lines.append(stripped)
-
-    return key_lines
-
-
-def build_evaluation_summary(stage_key: str, output: str) -> dict[str, Any]:
-    """Build structured evaluation values from a training script output."""
-
-    if stage_key == "regression":
-        return {
-            "metrics": {
-                "mae": extract_metric(output, "MAE"),
-                "rmse": extract_metric(output, "RMSE"),
-                "r2": extract_metric(output, "R2"),
-            },
-            "saved_paths": extract_saved_paths(output),
-        }
-
-    if stage_key == "classification":
-        return {
-            "metrics": {
-                "accuracy": extract_metric(output, "Accuracy"),
-                "weighted_f1": extract_metric(output, "Weighted F1"),
-            },
-            "saved_paths": extract_saved_paths(output),
-        }
-
-    if stage_key == "clustering":
-        return {
-            "metrics": {
-                "clusters_created": extract_int_metric(output, "Clusters created"),
-            },
-            "saved_paths": extract_saved_paths(output),
-        }
-
-    return {
-        "metrics": {},
-        "saved_paths": extract_saved_paths(output),
-    }
-
-
-def print_stage_evaluation(stage_key: str, evaluation: dict[str, Any]) -> None:
-    """Print concise model evaluation details for one stage."""
-
-    metrics = evaluation.get("metrics", {})
-    saved_paths = evaluation.get("saved_paths", [])
-
-    if stage_key == "regression":
-        if metrics.get("mae") is not None:
-            print_success(f"MAE: {metrics['mae']:.4f}")
-        if metrics.get("rmse") is not None:
-            print_success(f"RMSE: {metrics['rmse']:.4f}")
-        if metrics.get("r2") is not None:
-            print_success(f"R2: {metrics['r2']:.4f}")
-
-    elif stage_key == "classification":
-        if metrics.get("accuracy") is not None:
-            print_success(f"Accuracy: {metrics['accuracy']:.4f}")
-        if metrics.get("weighted_f1") is not None:
-            print_success(f"Weighted F1: {metrics['weighted_f1']:.4f}")
-
-    elif stage_key == "clustering":
-        if metrics.get("clusters_created") is not None:
-            print_success(f"Clusters created: {metrics['clusters_created']}")
-
-    for path in saved_paths:
-        print_success(f"Saved: {path}")
-
-
-# ------------------------------------------------------------
 # STAGE EXECUTION
 # ------------------------------------------------------------
 
@@ -335,7 +323,7 @@ def run_stage(
     script_path: Path,
     args: list[str],
 ) -> dict[str, Any]:
-    """Run a pipeline stage and return a stage summary."""
+    """Run a model training stage."""
 
     stage_summary: dict[str, Any] = {
         "key": stage_key,
@@ -347,7 +335,6 @@ def run_stage(
         "exit_code": None,
         "status": "running",
         "evaluation": {},
-        "key_output_lines": [],
         "stdout": "",
         "stderr": "",
     }
@@ -410,12 +397,9 @@ def run_stage(
         output=stage_summary["stdout"],
     )
 
-    stage_summary["key_output_lines"] = extract_key_lines(stage_summary["stdout"])
-
     if stage_summary["exit_code"] == 0:
         stage_summary["status"] = "completed"
         print_stage_evaluation(stage_key, stage_summary["evaluation"])
-        print_success(f"{label} completed")
     else:
         stage_summary["status"] = "failed"
         print_error(f"{label} failed: exit code {stage_summary['exit_code']}")
@@ -457,12 +441,10 @@ def main() -> int:
         "artefacts": {},
     }
 
-    print_section("Pre-flight")
-    print_step(f"Checking input: {relative_path(VALIDATED_DATASET_PATH)}")
-
     inputs_valid, error_message = validate_required_inputs()
 
     if not inputs_valid:
+        print_section("Pre-flight")
         print_error(str(error_message))
 
         summary["status"] = "failed"
@@ -471,8 +453,6 @@ def main() -> int:
         save_model_pipeline_summary(summary)
 
         return 1
-
-    print_success("Input dataset ready")
 
     for stage_key, label, script_path, args in STAGES:
         stage_summary = run_stage(
@@ -487,24 +467,17 @@ def main() -> int:
         if stage_summary["exit_code"] != 0:
             summary["status"] = "failed"
             summary["artefacts"] = build_artefact_summary()
+
+            print_section("Summary")
             save_model_pipeline_summary(summary)
 
             print()
             print_error("Model Pipeline stopped")
+
             return int(stage_summary["exit_code"])
 
     summary["status"] = "completed"
     summary["artefacts"] = build_artefact_summary()
-
-    print_section("Artefacts")
-
-    for group, artefacts in summary["artefacts"].items():
-        existing_count = sum(1 for artefact in artefacts if artefact["exists"])
-        print_success(f"{group.title()}: {existing_count}/{len(artefacts)} ready")
-
-        for artefact in artefacts:
-            status = "ready" if artefact["exists"] else "missing"
-            print(f"    - {artefact['path']} [{status}]")
 
     print_section("Summary")
     save_model_pipeline_summary(summary)

@@ -50,7 +50,6 @@ MODEL_PIPELINE_SUMMARY_PATH = get_model_pipeline_summary_path()
 # ------------------------------------------------------------
 
 REPORT_TITLE = "WinShield+ Runtime Risk Report"
-TOOL_NAME = "WinShield+"
 
 
 # ------------------------------------------------------------
@@ -66,9 +65,9 @@ def get_tool_version() -> str:
 
 
 def utc_timestamp() -> str:
-    """Return a compact UTC timestamp."""
+    """Return UTC timestamp for report metadata."""
 
-    return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return datetime.now(UTC).isoformat()
 
 
 def relative_path(path: Path) -> str:
@@ -248,8 +247,25 @@ def build_summary(results: list[dict[str, Any]]) -> dict[str, Any]:
 # MARKDOWN SECTION BUILDERS
 # ------------------------------------------------------------
 
-def append_model_evaluation_section(lines: list[str]) -> None:
-    """Append model evaluation section when model summary exists."""
+def append_runtime_summary(lines: list[str], results: list[dict[str, Any]]) -> None:
+    """Append runtime summary."""
+
+    summary = build_summary(results)
+
+    lines.append("## Runtime Summary")
+    lines.append("")
+    lines.append(f"- Ranking results: `{relative_path(RANKING_RESULTS_PATH)}`")
+    lines.append(f"- Markdown report: `{relative_path(REPORT_PATH)}`")
+    lines.append(f"- Missing KBs reviewed: {summary['missing_kbs_reviewed']}")
+    lines.append(f"- CVEs reviewed: {summary['cves_reviewed']}")
+    lines.append(f"- Highest policy risk: {summary['highest_policy_risk']:.2f}")
+    lines.append(f"- Highest ML risk: {summary['highest_ml_risk']:.2f}")
+    lines.append(f"- Highest priority: {summary['highest_priority']}")
+    lines.append("")
+
+
+def append_model_evaluation(lines: list[str]) -> None:
+    """Append model evaluation summary."""
 
     model_summary = load_model_pipeline_summary()
 
@@ -264,11 +280,7 @@ def append_model_evaluation_section(lines: list[str]) -> None:
         lines.append("")
         return
 
-    lines.append(
-        "The model pipeline trains supporting machine learning components used "
-        "during runtime prioritisation. These metrics describe model behaviour "
-        "on the training/test split used during Model Setup."
-    )
+    lines.append(f"- Model summary: `{relative_path(MODEL_PIPELINE_SUMMARY_PATH)}`")
     lines.append("")
     lines.append("| Model | Metric | Value |")
     lines.append("|---|---|---:|")
@@ -299,55 +311,30 @@ def append_model_evaluation_section(lines: list[str]) -> None:
     lines.append("")
 
 
-# ------------------------------------------------------------
-# MARKDOWN BUILDING
-# ------------------------------------------------------------
+def append_method(lines: list[str]) -> None:
+    """Append prioritisation method."""
 
-def build_report(results: list[dict[str, Any]]) -> str:
-    """Build the Markdown runtime risk report."""
-
-    generated_at = utc_timestamp()
-    summary = build_summary(results)
-
-    lines: list[str] = []
-
-    lines.append(f"# {REPORT_TITLE}")
-    lines.append("")
-    lines.append(f"**Generated:** {generated_at}")
-    lines.append("")
-    lines.append(f"**Tool:** {TOOL_NAME}")
-    lines.append("")
-    lines.append(f"**Version:** {get_tool_version()}")
-    lines.append("")
-    lines.append("## Summary")
-    lines.append("")
-    lines.append(f"- Missing KBs reviewed: {summary['missing_kbs_reviewed']}")
-    lines.append(f"- CVEs reviewed: {summary['cves_reviewed']}")
-    lines.append(f"- Highest policy risk: {summary['highest_policy_risk']:.2f}")
-    lines.append(f"- Highest ML risk: {summary['highest_ml_risk']:.2f}")
-    lines.append(f"- Highest priority: {summary['highest_priority']}")
-    lines.append("")
     lines.append("## Method")
     lines.append("")
     lines.append(
-        "WinShield+ ranks missing Windows KBs using a transparent policy risk "
-        "score as the primary remediation signal. Machine learning outputs are "
-        "included as supporting evidence: regression provides a learned risk "
-        "estimate, classification provides a learned priority band, and "
-        "clustering groups similar vulnerability rows for triage context."
+        "WinShield+ ranks missing Windows KBs using policy risk as the primary "
+        "remediation signal. Machine learning outputs are included as supporting "
+        "evidence: regression provides a learned risk estimate, classification "
+        "provides a learned priority band, and clustering groups similar "
+        "vulnerability rows for triage context."
     )
     lines.append("")
 
-    append_model_evaluation_section(lines)
+
+def append_ranked_remediation(lines: list[str], results: list[dict[str, Any]]) -> None:
+    """Append ranked remediation table."""
 
     lines.append("## Ranked Remediation")
     lines.append("")
     lines.append(
         "| Rank | KB | Policy Risk | ML Risk | Priority | ML Priority | Cluster | CVEs | Top Driver |"
     )
-    lines.append(
-        "|---:|---|---:|---:|---|---|---:|---:|---|"
-    )
+    lines.append("|---:|---|---:|---:|---|---|---:|---:|---|")
 
     for index, entry in enumerate(results, start=1):
         lines.append(
@@ -364,45 +351,25 @@ def build_report(results: list[dict[str, Any]]) -> str:
         )
 
     lines.append("")
-    lines.append("## KB Breakdown")
+
+
+def append_review_drivers(lines: list[str], results: list[dict[str, Any]]) -> None:
+    """Append concise review drivers below ranked remediation."""
+
+    lines.append("## Review Drivers")
     lines.append("")
 
     for entry in results:
         kb_id = entry.get("kb_id", "Unknown")
-        cves = entry.get("cves", [])
+        reason = entry.get("review_reason", "No review reason provided.")
 
-        lines.append(f"### {kb_id}")
-        lines.append("")
-        lines.append(f"**Policy risk:** {safe_float(entry.get('policy_risk')):.2f}")
-        lines.append("")
-        lines.append(f"**ML risk:** {safe_float(entry.get('ml_risk')):.2f}")
-        lines.append("")
-        lines.append(f"**Priority:** {entry.get('policy_priority', 'Unknown')}")
-        lines.append("")
-        lines.append(f"**ML priority:** {entry.get('ml_priority', 'Unknown')}")
-        lines.append("")
-        lines.append(f"**Cluster:** {safe_int(entry.get('cluster'))}")
-        lines.append("")
-        lines.append(f"**CVEs:** {safe_int(entry.get('cve_count'))}")
-        lines.append("")
-        lines.append(f"**Review reason:** {entry.get('review_reason', 'No review reason provided.')}")
-        lines.append("")
-        lines.append("| CVE | Policy Risk | ML Risk | Priority | ML Priority | Cluster | Driver |")
-        lines.append("|---|---:|---:|---|---|---:|---|")
+        lines.append(f"- {kb_id}: {reason}")
 
-        for cve in cves:
-            lines.append(
-                "| "
-                f"{cve.get('cve_id', 'Unknown')} | "
-                f"{safe_float(cve.get('policy_risk')):.2f} | "
-                f"{safe_float(cve.get('ml_risk')):.2f} | "
-                f"{cve.get('policy_priority', 'Unknown')} | "
-                f"{cve.get('ml_priority', 'Unknown')} | "
-                f"{safe_int(cve.get('cluster'))} | "
-                f"{cve.get('top_driver', 'Unknown')} |"
-            )
+    lines.append("")
 
-        lines.append("")
+
+def append_notes(lines: list[str]) -> None:
+    """Append report notes."""
 
     lines.append("## Notes")
     lines.append("")
@@ -423,6 +390,29 @@ def build_report(results: list[dict[str, Any]]) -> str:
         "latest scan."
     )
     lines.append("")
+
+
+# ------------------------------------------------------------
+# MARKDOWN BUILDING
+# ------------------------------------------------------------
+
+def build_report(results: list[dict[str, Any]]) -> str:
+    """Build the Markdown runtime risk report."""
+
+    lines: list[str] = []
+
+    lines.append(f"# {REPORT_TITLE}")
+    lines.append("")
+    lines.append(f"Generated UTC: {utc_timestamp()}")
+    lines.append(f"Tool version: {get_tool_version()}")
+    lines.append("")
+
+    append_runtime_summary(lines, results)
+    append_model_evaluation(lines)
+    append_method(lines)
+    append_ranked_remediation(lines, results)
+    append_review_drivers(lines, results)
+    append_notes(lines)
 
     return "\n".join(lines)
 
