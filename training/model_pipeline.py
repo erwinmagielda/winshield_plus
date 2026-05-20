@@ -13,6 +13,7 @@ Exports a model pipeline summary to results/model_pipeline_summary.json.
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 from datetime import UTC, datetime
@@ -33,6 +34,7 @@ if str(SRC_DIR) not in sys.path:
 
 from utils.winshield_banner import (
     print_error,
+    print_info,
     print_section,
     print_step,
     print_success,
@@ -41,6 +43,7 @@ from utils.winshield_banner import (
 from utils.winshield_paths import (
     ensure_directory,
     get_dataset_dir,
+    get_model_pipeline_summary_path,
     get_models_dir,
     get_results_dir,
 )
@@ -62,7 +65,7 @@ REGRESSION_SCRIPT = SCRIPT_DIR / "train_regression.py"
 CLASSIFICATION_SCRIPT = SCRIPT_DIR / "train_classification.py"
 CLUSTERING_SCRIPT = SCRIPT_DIR / "train_clustering.py"
 
-SUMMARY_PATH = RESULTS_DIR / "model_pipeline_summary.json"
+SUMMARY_PATH = get_model_pipeline_summary_path()
 
 PYTHON_EXE = sys.executable
 
@@ -71,10 +74,10 @@ PYTHON_EXE = sys.executable
 # PIPELINE STAGES
 # ------------------------------------------------------------
 
-STAGES: list[tuple[str, Path, list[str]]] = [
-    ("Regression Training", REGRESSION_SCRIPT, []),
-    ("Classification Training", CLASSIFICATION_SCRIPT, []),
-    ("Clustering Training", CLUSTERING_SCRIPT, []),
+STAGES: list[tuple[str, str, Path, list[str]]] = [
+    ("regression", "Regression", REGRESSION_SCRIPT, []),
+    ("classification", "Classification", CLASSIFICATION_SCRIPT, []),
+    ("clustering", "Clustering", CLUSTERING_SCRIPT, []),
 ]
 
 EXPECTED_ARTEFACTS: dict[str, list[Path]] = {
@@ -176,13 +179,166 @@ def validate_required_inputs() -> tuple[bool, str | None]:
 
 
 # ------------------------------------------------------------
+# OUTPUT PARSING
+# ------------------------------------------------------------
+
+def extract_metric(output: str, label: str) -> float | None:
+    """Extract a numeric metric from training script output."""
+
+    pattern = rf"\[\+\]\s+{re.escape(label)}:\s+([-+]?\d+(?:\.\d+)?)"
+    match = re.search(pattern, output)
+
+    if not match:
+        return None
+
+    return float(match.group(1))
+
+
+def extract_int_metric(output: str, label: str) -> int | None:
+    """Extract an integer metric from training script output."""
+
+    pattern = rf"\[\+\]\s+{re.escape(label)}:\s+(\d+)"
+    match = re.search(pattern, output)
+
+    if not match:
+        return None
+
+    return int(match.group(1))
+
+
+def extract_saved_paths(output: str) -> list[str]:
+    """Extract saved artefact paths from training script output."""
+
+    paths: list[str] = []
+
+    for line in output.splitlines():
+        stripped = line.strip()
+
+        if not stripped.startswith("[+]"):
+            continue
+
+        if "saved:" not in stripped.lower():
+            continue
+
+        _, _, path = stripped.partition(":")
+        path = path.strip()
+
+        if path:
+            paths.append(path)
+
+    return paths
+
+
+def extract_key_lines(output: str) -> list[str]:
+    """Extract useful success and info lines from training output."""
+
+    useful_prefixes = ("[+]", "[i]")
+    useful_terms = (
+        "MAE:",
+        "RMSE:",
+        "R2:",
+        "Accuracy:",
+        "Weighted F1:",
+        "Clusters created:",
+        "Elbow chart saved:",
+        "Cluster chart saved:",
+        "Model saved:",
+        "Preprocessor saved:",
+        "Feature list saved:",
+    )
+
+    key_lines: list[str] = []
+
+    for line in output.splitlines():
+        stripped = line.strip()
+
+        if not stripped.startswith(useful_prefixes):
+            continue
+
+        if any(term in stripped for term in useful_terms):
+            key_lines.append(stripped)
+
+    return key_lines
+
+
+def build_evaluation_summary(stage_key: str, output: str) -> dict[str, Any]:
+    """Build structured evaluation values from a training script output."""
+
+    if stage_key == "regression":
+        return {
+            "metrics": {
+                "mae": extract_metric(output, "MAE"),
+                "rmse": extract_metric(output, "RMSE"),
+                "r2": extract_metric(output, "R2"),
+            },
+            "saved_paths": extract_saved_paths(output),
+        }
+
+    if stage_key == "classification":
+        return {
+            "metrics": {
+                "accuracy": extract_metric(output, "Accuracy"),
+                "weighted_f1": extract_metric(output, "Weighted F1"),
+            },
+            "saved_paths": extract_saved_paths(output),
+        }
+
+    if stage_key == "clustering":
+        return {
+            "metrics": {
+                "clusters_created": extract_int_metric(output, "Clusters created"),
+            },
+            "saved_paths": extract_saved_paths(output),
+        }
+
+    return {
+        "metrics": {},
+        "saved_paths": extract_saved_paths(output),
+    }
+
+
+def print_stage_evaluation(stage_key: str, evaluation: dict[str, Any]) -> None:
+    """Print concise model evaluation details for one stage."""
+
+    metrics = evaluation.get("metrics", {})
+    saved_paths = evaluation.get("saved_paths", [])
+
+    if stage_key == "regression":
+        if metrics.get("mae") is not None:
+            print_success(f"MAE: {metrics['mae']:.4f}")
+        if metrics.get("rmse") is not None:
+            print_success(f"RMSE: {metrics['rmse']:.4f}")
+        if metrics.get("r2") is not None:
+            print_success(f"R2: {metrics['r2']:.4f}")
+
+    elif stage_key == "classification":
+        if metrics.get("accuracy") is not None:
+            print_success(f"Accuracy: {metrics['accuracy']:.4f}")
+        if metrics.get("weighted_f1") is not None:
+            print_success(f"Weighted F1: {metrics['weighted_f1']:.4f}")
+
+    elif stage_key == "clustering":
+        if metrics.get("clusters_created") is not None:
+            print_success(f"Clusters created: {metrics['clusters_created']}")
+
+    for path in saved_paths:
+        print_success(f"Saved: {path}")
+
+
+# ------------------------------------------------------------
 # STAGE EXECUTION
 # ------------------------------------------------------------
 
-def run_stage(label: str, script_path: Path, args: list[str]) -> dict[str, Any]:
+def run_stage(
+    stage_key: str,
+    label: str,
+    script_path: Path,
+    args: list[str],
+) -> dict[str, Any]:
     """Run a pipeline stage and return a stage summary."""
 
     stage_summary: dict[str, Any] = {
+        "key": stage_key,
         "label": label,
         "script": relative_path(script_path),
         "args": args,
@@ -190,7 +346,13 @@ def run_stage(label: str, script_path: Path, args: list[str]) -> dict[str, Any]:
         "finished_at_utc": None,
         "exit_code": None,
         "status": "running",
+        "evaluation": {},
+        "key_output_lines": [],
+        "stdout": "",
+        "stderr": "",
     }
+
+    print_section(label)
 
     if not script_path.is_file():
         print_error(f"Stage script missing: {relative_path(script_path)}")
@@ -201,16 +363,20 @@ def run_stage(label: str, script_path: Path, args: list[str]) -> dict[str, Any]:
 
         return stage_summary
 
-    print_step(f"Running {label}")
+    print_step(f"Running {script_path.name}")
 
     try:
         result = subprocess.run(
             [PYTHON_EXE, str(script_path), *args],
             cwd=ROOT_DIR,
+            capture_output=True,
+            text=True,
             check=False,
         )
 
         stage_summary["exit_code"] = int(result.returncode or 0)
+        stage_summary["stdout"] = result.stdout
+        stage_summary["stderr"] = result.stderr
 
     except KeyboardInterrupt:
         print()
@@ -234,12 +400,30 @@ def run_stage(label: str, script_path: Path, args: list[str]) -> dict[str, Any]:
 
     stage_summary["finished_at_utc"] = utc_timestamp()
 
+    if stage_summary["stderr"]:
+        print_warning(f"{label} produced stderr output")
+        for line in stage_summary["stderr"].splitlines()[:8]:
+            print(f"    {line}")
+
+    stage_summary["evaluation"] = build_evaluation_summary(
+        stage_key=stage_key,
+        output=stage_summary["stdout"],
+    )
+
+    stage_summary["key_output_lines"] = extract_key_lines(stage_summary["stdout"])
+
     if stage_summary["exit_code"] == 0:
         stage_summary["status"] = "completed"
+        print_stage_evaluation(stage_key, stage_summary["evaluation"])
         print_success(f"{label} completed")
     else:
         stage_summary["status"] = "failed"
         print_error(f"{label} failed: exit code {stage_summary['exit_code']}")
+
+        if stage_summary["stdout"]:
+            print_info("Last stdout lines:")
+            for line in stage_summary["stdout"].splitlines()[-8:]:
+                print(f"    {line}")
 
     return stage_summary
 
@@ -290,10 +474,9 @@ def main() -> int:
 
     print_success("Input dataset ready")
 
-    print_section("Training")
-
-    for label, script_path, args in STAGES:
+    for stage_key, label, script_path, args in STAGES:
         stage_summary = run_stage(
+            stage_key=stage_key,
             label=label,
             script_path=script_path,
             args=args,

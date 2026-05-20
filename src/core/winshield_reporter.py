@@ -29,6 +29,7 @@ if str(SRC_DIR) not in sys.path:
 from utils.winshield_banner import print_success
 from utils.winshield_paths import (
     ensure_directory,
+    get_model_pipeline_summary_path,
     get_ranking_results_path,
     get_runtime_report_path,
     load_config,
@@ -41,6 +42,7 @@ from utils.winshield_paths import (
 
 RANKING_RESULTS_PATH = get_ranking_results_path()
 REPORT_PATH = get_runtime_report_path()
+MODEL_PIPELINE_SUMMARY_PATH = get_model_pipeline_summary_path()
 
 
 # ------------------------------------------------------------
@@ -50,6 +52,11 @@ REPORT_PATH = get_runtime_report_path()
 REPORT_TITLE = "WinShield+ Runtime Risk Report"
 TOOL_NAME = "WinShield+"
 
+
+# ------------------------------------------------------------
+# GENERAL HELPERS
+# ------------------------------------------------------------
+
 def get_tool_version() -> str:
     """Return configured tool version."""
 
@@ -57,10 +64,6 @@ def get_tool_version() -> str:
 
     return str(config.get("version", "unknown"))
 
-
-# ------------------------------------------------------------
-# GENERAL HELPERS
-# ------------------------------------------------------------
 
 def utc_timestamp() -> str:
     """Return a compact UTC timestamp."""
@@ -95,6 +98,18 @@ def safe_int(value: Any) -> int:
         return 0
 
 
+def format_metric(value: Any, decimals: int = 4) -> str:
+    """Format a metric value for Markdown output."""
+
+    if value is None:
+        return "Not available"
+
+    try:
+        return f"{float(value):.{decimals}f}"
+    except (TypeError, ValueError):
+        return str(value)
+
+
 # ------------------------------------------------------------
 # DATA LOADING
 # ------------------------------------------------------------
@@ -112,6 +127,73 @@ def load_ranking_results(path: Path = RANKING_RESULTS_PATH) -> list[dict[str, An
         raise RuntimeError("Ranking results have unexpected structure")
 
     return data
+
+
+def load_model_pipeline_summary(
+    path: Path = MODEL_PIPELINE_SUMMARY_PATH,
+) -> dict[str, Any] | None:
+    """Load model pipeline summary if available."""
+
+    if not path.is_file():
+        return None
+
+    with path.open("r", encoding="utf-8") as file:
+        data = json.load(file)
+
+    if not isinstance(data, dict):
+        return None
+
+    return data
+
+
+# ------------------------------------------------------------
+# MODEL EVALUATION HELPERS
+# ------------------------------------------------------------
+
+def get_stage_by_key(
+    summary: dict[str, Any],
+    stage_key: str,
+) -> dict[str, Any] | None:
+    """Return a model pipeline stage by key."""
+
+    stages = summary.get("stages", [])
+
+    if not isinstance(stages, list):
+        return None
+
+    for stage in stages:
+        if not isinstance(stage, dict):
+            continue
+
+        if stage.get("key") == stage_key:
+            return stage
+
+    return None
+
+
+def get_stage_metric(
+    summary: dict[str, Any],
+    stage_key: str,
+    metric_name: str,
+) -> Any:
+    """Return a metric value from model pipeline summary."""
+
+    stage = get_stage_by_key(summary, stage_key)
+
+    if not stage:
+        return None
+
+    evaluation = stage.get("evaluation", {})
+
+    if not isinstance(evaluation, dict):
+        return None
+
+    metrics = evaluation.get("metrics", {})
+
+    if not isinstance(metrics, dict):
+        return None
+
+    return metrics.get(metric_name)
 
 
 # ------------------------------------------------------------
@@ -163,6 +245,61 @@ def build_summary(results: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 # ------------------------------------------------------------
+# MARKDOWN SECTION BUILDERS
+# ------------------------------------------------------------
+
+def append_model_evaluation_section(lines: list[str]) -> None:
+    """Append model evaluation section when model summary exists."""
+
+    model_summary = load_model_pipeline_summary()
+
+    lines.append("## Model Evaluation")
+    lines.append("")
+
+    if not model_summary:
+        lines.append(
+            "Model evaluation is not available because "
+            "`results/model_pipeline_summary.json` was not found."
+        )
+        lines.append("")
+        return
+
+    lines.append(
+        "The model pipeline trains supporting machine learning components used "
+        "during runtime prioritisation. These metrics describe model behaviour "
+        "on the training/test split used during Model Setup."
+    )
+    lines.append("")
+    lines.append("| Model | Metric | Value |")
+    lines.append("|---|---|---:|")
+    lines.append(
+        "| Regression | MAE | "
+        f"{format_metric(get_stage_metric(model_summary, 'regression', 'mae'))} |"
+    )
+    lines.append(
+        "| Regression | RMSE | "
+        f"{format_metric(get_stage_metric(model_summary, 'regression', 'rmse'))} |"
+    )
+    lines.append(
+        "| Regression | R2 | "
+        f"{format_metric(get_stage_metric(model_summary, 'regression', 'r2'))} |"
+    )
+    lines.append(
+        "| Classification | Accuracy | "
+        f"{format_metric(get_stage_metric(model_summary, 'classification', 'accuracy'))} |"
+    )
+    lines.append(
+        "| Classification | Weighted F1 | "
+        f"{format_metric(get_stage_metric(model_summary, 'classification', 'weighted_f1'))} |"
+    )
+    lines.append(
+        "| Clustering | Clusters created | "
+        f"{format_metric(get_stage_metric(model_summary, 'clustering', 'clusters_created'), decimals=0)} |"
+    )
+    lines.append("")
+
+
+# ------------------------------------------------------------
 # MARKDOWN BUILDING
 # ------------------------------------------------------------
 
@@ -200,6 +337,9 @@ def build_report(results: list[dict[str, Any]]) -> str:
         "clustering groups similar vulnerability rows for triage context."
     )
     lines.append("")
+
+    append_model_evaluation_section(lines)
+
     lines.append("## Ranked Remediation")
     lines.append("")
     lines.append(
@@ -238,6 +378,8 @@ def build_report(results: list[dict[str, Any]]) -> str:
         lines.append(f"**ML risk:** {safe_float(entry.get('ml_risk')):.2f}")
         lines.append("")
         lines.append(f"**Priority:** {entry.get('policy_priority', 'Unknown')}")
+        lines.append("")
+        lines.append(f"**ML priority:** {entry.get('ml_priority', 'Unknown')}")
         lines.append("")
         lines.append(f"**Cluster:** {safe_int(entry.get('cluster'))}")
         lines.append("")
