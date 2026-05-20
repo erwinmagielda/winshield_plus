@@ -16,12 +16,13 @@ __pycache__/
 # ------------------------------------------------------------
 
 venv/
-.env/
 .venv/
+env/
+.env/
 
 
 # ------------------------------------------------------------
-# PYINSTALLER / BUILD OUTPUT
+# BUILD OUTPUT
 # ------------------------------------------------------------
 
 build/
@@ -30,25 +31,63 @@ dist/
 
 
 # ------------------------------------------------------------
-# WINSHIELD+ GENERATED DATA
+# GENERATED DATASETS
 # ------------------------------------------------------------
 
-data/dataset/
-data/runtime/
-results/
-models/
-downloads/
+data/dataset/*
+!data/dataset/.gitkeep
 
+data/runtime/*
+!data/runtime/.gitkeep
 
-# ------------------------------------------------------------
-# PROJECTS SPLIT OUT OF THIS REPO
-# ------------------------------------------------------------
-
-collector/
+data/logs/*
+!data/logs/.gitkeep
 
 
 # ------------------------------------------------------------
-# LOCAL / EDITOR FILES
+# GENERATED MODEL ARTEFACTS
+# ------------------------------------------------------------
+
+models/*
+!models/.gitkeep
+
+
+# ------------------------------------------------------------
+# GENERATED RESULTS
+# ------------------------------------------------------------
+
+results/*
+!results/.gitkeep
+
+
+# ------------------------------------------------------------
+# DOWNLOADED UPDATE PACKAGES
+# ------------------------------------------------------------
+
+downloads/*
+!downloads/.gitkeep
+
+
+# ------------------------------------------------------------
+# PRESERVED TRAINING SCANS
+# ------------------------------------------------------------
+
+# data/scans/ is intentionally preserved.
+# The training pipeline reads source scan JSON files from this directory.
+
+
+# ------------------------------------------------------------
+# LOCAL NOTES AND TEMPORARY FILES
+# ------------------------------------------------------------
+
+structure.txt
+notes.txt
+*.tmp
+*.bak
+
+
+# ------------------------------------------------------------
+# LOCAL EDITOR FILES
 # ------------------------------------------------------------
 
 .vscode/
