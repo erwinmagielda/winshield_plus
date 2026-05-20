@@ -98,6 +98,10 @@ def split_features_and_target(
     drop_columns = [
         "risk_score",
         "priority_label",
+        "policy_risk",
+        "policy_priority",
+        "policy_drivers",
+        "top_driver",
         "kb_id",
         "cve_id",
         "month",
@@ -105,7 +109,7 @@ def split_features_and_target(
         "exploitation",
     ]
 
-    features = training_data.drop(columns=drop_columns)
+    features = training_data.drop(columns=drop_columns, errors="ignore")
     target = training_data["priority_label"]
 
     return features, target

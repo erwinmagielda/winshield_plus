@@ -1,9 +1,11 @@
 """
 WinShield+ prioritiser.
 
-Loads validated runtime vulnerability data, applies trained regression,
-classification, and clustering models, then ranks missing KBs by predicted risk.
-Exports ranked prioritisation results for review or downstream automation.
+Loads validated runtime vulnerability data, applies transparent policy scoring,
+then applies trained regression, classification, and clustering models as
+supporting signals.
+
+Exports ranked KB prioritisation results for review or downstream automation.
 """
 
 from __future__ import annotations
@@ -28,19 +30,21 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 
-from utils.winshield_banner import (  # noqa: E402
+from utils.winshield_banner import (
     print_error,
+    print_info,
     print_section,
     print_step,
     print_success,
     print_warning,
 )
-from utils.winshield_paths import (  # noqa: E402
+from utils.winshield_paths import (
     ensure_directory,
     get_models_dir,
     get_results_dir,
     get_runtime_dir,
 )
+from utils.winshield_risk import apply_risk_policy
 
 
 # ------------------------------------------------------------
@@ -76,6 +80,43 @@ def relative_path(path: Path) -> str:
         return path.relative_to(ROOT_DIR).as_posix()
     except ValueError:
         return str(path)
+
+
+def safe_mode(series: pd.Series, fallback: Any = "Unknown") -> Any:
+    """Return the first mode value from a series, or fallback if unavailable."""
+
+    mode_values = series.dropna().mode()
+
+    if mode_values.empty:
+        return fallback
+
+    return mode_values.iloc[0]
+
+
+def highest_priority(series: pd.Series) -> str:
+    """Return the highest priority label present in a series."""
+
+    priorities = set(series.dropna().astype(str))
+
+    if "High" in priorities:
+        return "High"
+
+    if "Medium" in priorities:
+        return "Medium"
+
+    if "Low" in priorities:
+        return "Low"
+
+    return "Unknown"
+
+
+def format_drivers(drivers: Any) -> str:
+    """Return risk drivers as a readable string."""
+
+    if isinstance(drivers, list):
+        return ", ".join(str(driver) for driver in drivers)
+
+    return str(drivers)
 
 
 # ------------------------------------------------------------
@@ -136,9 +177,13 @@ def prepare_features(runtime_data: pd.DataFrame) -> pd.DataFrame:
         "month",
         "published_date",
         "exploitation",
+        "policy_risk",
+        "policy_priority",
+        "policy_drivers",
+        "top_driver",
     ]
 
-    return features.drop(columns=drop_columns)
+    return features.drop(columns=drop_columns, errors="ignore")
 
 
 # ------------------------------------------------------------
@@ -146,9 +191,9 @@ def prepare_features(runtime_data: pd.DataFrame) -> pd.DataFrame:
 # ------------------------------------------------------------
 
 def predict_priorities(runtime_data: pd.DataFrame) -> pd.DataFrame:
-    """Apply trained models and attach predictions to runtime data."""
+    """Apply risk policy and trained models to runtime data."""
 
-    predictions = runtime_data.copy()
+    predictions = apply_risk_policy(runtime_data)
     features = prepare_features(predictions)
 
     regression_model = joblib.load(REGRESSION_MODEL_PATH)
@@ -164,8 +209,8 @@ def predict_priorities(runtime_data: pd.DataFrame) -> pd.DataFrame:
     classification_features = classification_preprocessor.transform(features)
     clustering_features = clustering_preprocessor.transform(features)
 
-    predictions["regression"] = regression_model.predict(regression_features)
-    predictions["classification"] = classification_model.predict(classification_features)
+    predictions["ml_risk"] = regression_model.predict(regression_features)
+    predictions["ml_priority"] = classification_model.predict(classification_features)
     predictions["cluster"] = clustering_model.predict(clustering_features)
 
     return predictions
@@ -176,10 +221,10 @@ def predict_priorities(runtime_data: pd.DataFrame) -> pd.DataFrame:
 # ------------------------------------------------------------
 
 def get_kb_order(predictions: pd.DataFrame) -> pd.Index:
-    """Return KB IDs ordered by highest predicted risk."""
+    """Return KB IDs ordered by highest policy risk."""
 
     return (
-        predictions.groupby("kb_id")["regression"]
+        predictions.groupby("kb_id")["policy_risk"]
         .max()
         .sort_values(ascending=False)
         .index
@@ -192,14 +237,20 @@ def build_results(predictions: pd.DataFrame) -> list[dict[str, Any]]:
     output: list[dict[str, Any]] = []
 
     for kb_id, kb_rows in predictions.groupby("kb_id"):
-        cve_rows = kb_rows.sort_values("regression", ascending=False)
+        cve_rows = kb_rows.sort_values("policy_risk", ascending=False)
+
+        top_row = cve_rows.iloc[0]
 
         entry = {
             "kb_id": kb_id,
-            "max_risk": float(cve_rows["regression"].max()),
-            "classification": cve_rows["classification"].mode()[0],
-            "cluster": int(cve_rows["cluster"].mode()[0]),
+            "policy_risk": float(cve_rows["policy_risk"].max()),
+            "ml_risk": float(cve_rows["ml_risk"].max()),
+            "policy_priority": highest_priority(cve_rows["policy_priority"]),
+            "ml_priority": highest_priority(cve_rows["ml_priority"]),
+            "cluster": int(safe_mode(cve_rows["cluster"], fallback=0)),
             "cve_count": int(len(cve_rows)),
+            "top_driver": str(top_row.get("top_driver", "baseline CVSS exposure")),
+            "review_reason": format_drivers(top_row.get("policy_drivers", [])),
             "cves": [],
         }
 
@@ -207,15 +258,19 @@ def build_results(predictions: pd.DataFrame) -> list[dict[str, Any]]:
             entry["cves"].append(
                 {
                     "cve_id": row["cve_id"],
-                    "risk": float(row["regression"]),
-                    "classification": row["classification"],
+                    "policy_risk": float(row["policy_risk"]),
+                    "ml_risk": float(row["ml_risk"]),
+                    "policy_priority": row["policy_priority"],
+                    "ml_priority": row["ml_priority"],
                     "cluster": int(row["cluster"]),
+                    "top_driver": row["top_driver"],
+                    "drivers": format_drivers(row["policy_drivers"]),
                 }
             )
 
         output.append(entry)
 
-    return sorted(output, key=lambda item: item["max_risk"], reverse=True)
+    return sorted(output, key=lambda item: item["policy_risk"], reverse=True)
 
 
 # ------------------------------------------------------------
@@ -232,8 +287,19 @@ def print_runtime_summary(runtime_data: pd.DataFrame) -> None:
     print_success(f"Unique CVEs: {runtime_data['cve_id'].nunique()}")
 
 
+def print_policy_summary(predictions: pd.DataFrame) -> None:
+    """Print concise risk policy summary."""
+
+    print_section("Risk Policy")
+    print_info("Primary ranking: policy risk")
+    print_info("Supporting signals: ML risk, ML priority, cluster")
+    print_success(f"Policy risk min: {predictions['policy_risk'].min():.2f}")
+    print_success(f"Policy risk max: {predictions['policy_risk'].max():.2f}")
+    print_success(f"Policy risk mean: {predictions['policy_risk'].mean():.2f}")
+
+
 def print_patch_recommendation(predictions: pd.DataFrame) -> None:
-    """Print aligned KB-level remediation order based on predicted risk."""
+    """Print aligned KB-level remediation order based on policy risk."""
 
     print_section("Ranked Remediation")
 
@@ -246,10 +312,12 @@ def print_patch_recommendation(predictions: pd.DataFrame) -> None:
     header = (
         f"{'Rank':<6} | "
         f"{'KB':<12} | "
-        f"{'Risk':>7} | "
+        f"{'Policy':>7} | "
+        f"{'ML Risk':>7} | "
         f"{'Priority':<10} | "
         f"{'Cluster':>7} | "
-        f"{'CVEs':>5}"
+        f"{'CVEs':>5} | "
+        f"{'Top Driver':<24}"
     )
 
     print(header)
@@ -259,35 +327,44 @@ def print_patch_recommendation(predictions: pd.DataFrame) -> None:
         print(
             f"{index:<6} | "
             f"{entry['kb_id']:<12} | "
-            f"{entry['max_risk']:>7.2f} | "
-            f"{entry['classification']:<10} | "
+            f"{entry['policy_risk']:>7.2f} | "
+            f"{entry['ml_risk']:>7.2f} | "
+            f"{entry['policy_priority']:<10} | "
             f"{entry['cluster']:>7} | "
-            f"{entry['cve_count']:>5}"
+            f"{entry['cve_count']:>5} | "
+            f"{entry['top_driver']:<24}"
         )
 
 
 def print_kb_breakdown(predictions: pd.DataFrame) -> None:
-    """Print aligned CVE-level prediction details grouped by ranked KB."""
+    """Print aligned CVE-level details grouped by ranked KB."""
 
     print_section("CVE Breakdown")
 
-    sorted_predictions = predictions.sort_values("regression", ascending=False)
+    sorted_predictions = predictions.sort_values("policy_risk", ascending=False)
     kb_order = get_kb_order(sorted_predictions)
 
     cve_width = 18
-    risk_width = 7
+    policy_width = 7
+    ml_width = 7
     priority_width = 10
     cluster_width = 7
+    driver_width = 24
 
-    separator = "-" * 60
+    separator = "-" * 80
 
     for index, kb_id in enumerate(kb_order, start=1):
         kb_rows = sorted_predictions[sorted_predictions["kb_id"] == kb_id]
 
-        max_risk = kb_rows["regression"].max()
-        classification = kb_rows["classification"].mode()[0]
-        cluster = kb_rows["cluster"].mode()[0]
+        policy_risk = kb_rows["policy_risk"].max()
+        ml_risk = kb_rows["ml_risk"].max()
+        policy_priority = highest_priority(kb_rows["policy_priority"])
+        ml_priority = highest_priority(kb_rows["ml_priority"])
+        cluster = safe_mode(kb_rows["cluster"], fallback=0)
         cve_count = len(kb_rows)
+
+        top_row = kb_rows.iloc[0]
+        review_reason = format_drivers(top_row.get("policy_drivers", []))
 
         if index > 1:
             print()
@@ -296,18 +373,23 @@ def print_kb_breakdown(predictions: pd.DataFrame) -> None:
 
         print_success(kb_id)
         print(
-            f"    KB risk: {max_risk:.2f} | "
-            f"Priority: {classification} | "
+            f"    KB risk: {policy_risk:.2f} | "
+            f"ML risk: {ml_risk:.2f} | "
+            f"Priority: {policy_priority} | "
+            f"ML priority: {ml_priority} | "
             f"Cluster: {cluster} | "
             f"CVEs: {cve_count}"
         )
+        print(f"    Reason: {review_reason}")
         print()
 
         header = (
             f"    {'CVE':<{cve_width}} | "
-            f"{'Risk':>{risk_width}} | "
+            f"{'Policy':>{policy_width}} | "
+            f"{'ML Risk':>{ml_width}} | "
             f"{'Priority':<{priority_width}} | "
-            f"{'Cluster':>{cluster_width}}"
+            f"{'Cluster':>{cluster_width}} | "
+            f"{'Driver':<{driver_width}}"
         )
 
         print(header)
@@ -316,9 +398,11 @@ def print_kb_breakdown(predictions: pd.DataFrame) -> None:
         for _, row in kb_rows.iterrows():
             print(
                 f"    {row['cve_id']:<{cve_width}} | "
-                f"{row['regression']:>{risk_width}.2f} | "
-                f"{row['classification']:<{priority_width}} | "
-                f"{row['cluster']:>{cluster_width}}"
+                f"{row['policy_risk']:>{policy_width}.2f} | "
+                f"{row['ml_risk']:>{ml_width}.2f} | "
+                f"{row['policy_priority']:<{priority_width}} | "
+                f"{row['cluster']:>{cluster_width}} | "
+                f"{row['top_driver']:<{driver_width}}"
             )
 
 
@@ -356,10 +440,11 @@ def main() -> int:
         print_runtime_summary(runtime_data)
 
         print_section("Inference")
-        print_step("Applying trained models")
+        print_step("Applying risk policy and trained models")
         predictions = predict_priorities(runtime_data)
-        print_success("Predictions generated")
+        print_success("Policy scores and predictions generated")
 
+        print_policy_summary(predictions)
         print_patch_recommendation(predictions)
         print_kb_breakdown(predictions)
 

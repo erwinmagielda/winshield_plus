@@ -107,6 +107,10 @@ def build_features(training_data: pd.DataFrame) -> pd.DataFrame:
     drop_columns = [
         "risk_score",
         "priority_label",
+        "policy_risk",
+        "policy_priority",
+        "policy_drivers",
+        "top_driver",
         "kb_id",
         "cve_id",
         "month",
@@ -114,7 +118,7 @@ def build_features(training_data: pd.DataFrame) -> pd.DataFrame:
         "exploitation",
     ]
 
-    return training_data.drop(columns=drop_columns)
+    return training_data.drop(columns=drop_columns, errors="ignore")
 
 
 def build_preprocessor(features: pd.DataFrame) -> ColumnTransformer:

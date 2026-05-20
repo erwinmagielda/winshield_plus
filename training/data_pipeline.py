@@ -47,6 +47,7 @@ from utils.winshield_paths import (
     get_runtime_dir,
     get_scan_source_dir,
 )
+from utils.winshield_risk import apply_risk_policy
 
 
 # ------------------------------------------------------------
@@ -199,13 +200,19 @@ def flatten_scans(mode: str) -> tuple[Path, dict[str, Any]]:
                 for month_id in months:
                     rows.append(
                         {
-                            "kb_id": kb_id,
+                            "kb_id": str(kb_id).strip().upper(),
                             "cve_id": str(cve_id).strip().upper(),
                             "month": str(month_id).strip(),
                         }
                     )
 
     flattened_data = pd.DataFrame(rows)
+
+    if not flattened_data.empty:
+        flattened_data = flattened_data.drop_duplicates(
+            subset=["kb_id", "cve_id", "month"]
+        )
+
     flattened_data.to_csv(output_path, index=False)
 
     summary = {
@@ -408,6 +415,12 @@ def enrich_data(input_csv: Path) -> tuple[Path, dict[str, Any]]:
         )
 
     enriched_data = pd.DataFrame(enriched_rows)
+
+    if not enriched_data.empty:
+        enriched_data = enriched_data.drop_duplicates(
+            subset=["kb_id", "cve_id", "month"]
+        )
+
     enriched_data.to_csv(output_path, index=False)
 
     summary = {
@@ -429,59 +442,35 @@ def enrich_data(input_csv: Path) -> tuple[Path, dict[str, Any]]:
 # STEP 3: LABEL
 # ------------------------------------------------------------
 
-def compute_risk_label(row: pd.Series) -> tuple[float, str]:
-    """Compute a training risk score and priority label from enriched CVE data."""
-
-    score = float(row.get("cvss_score") or 0)
-
-    if "Exploited:Yes" in str(row.get("exploitation")):
-        score += 2
-
-    if row.get("attack_vector") == "N":
-        score += 1
-
-    patch_age_days = row.get("patch_age_days")
-
-    if pd.notna(patch_age_days):
-        score += float(patch_age_days) / 60
-
-    if score >= 9:
-        priority_label = "High"
-    elif score >= 6:
-        priority_label = "Medium"
-    else:
-        priority_label = "Low"
-
-    return round(score, 2), priority_label
-
-
 def label_training_data(input_csv: Path) -> tuple[Path, dict[str, Any]]:
-    """Apply synthetic risk labels for supervised model training."""
+    """Apply shared risk policy labels for supervised model training."""
 
     print_section("Label")
 
     enriched_data = pd.read_csv(input_csv)
 
-    enriched_data[["risk_score", "priority_label"]] = enriched_data.apply(
-        lambda row: pd.Series(compute_risk_label(row)),
-        axis=1,
-    )
+    labelled_data = apply_risk_policy(enriched_data)
+
+    labelled_data["risk_score"] = labelled_data["policy_risk"]
+    labelled_data["priority_label"] = labelled_data["policy_priority"]
 
     output_path = Path(str(input_csv).replace("enriched", "labelled"))
-    enriched_data.to_csv(output_path, index=False)
+    labelled_data.to_csv(output_path, index=False)
 
     label_distribution = {
         str(label): int(count)
-        for label, count in enriched_data["priority_label"].value_counts().items()
+        for label, count in labelled_data["priority_label"].value_counts().items()
     }
 
     summary = {
-        "rows_labelled": int(len(enriched_data)),
+        "rows_labelled": int(len(labelled_data)),
         "label_distribution": label_distribution,
+        "policy_source": "utils.winshield_risk.apply_risk_policy",
         "output": relative_path(output_path),
     }
 
     print_success(f"Rows labelled: {summary['rows_labelled']}")
+    print_info("Policy source: utils.winshield_risk.apply_risk_policy")
 
     for label, count in label_distribution.items():
         print_info(f"{label}: {count}")
@@ -520,6 +509,8 @@ def validate_data(input_csv: Path, mode: str) -> tuple[Path, dict[str, Any]]:
     before_count = len(pipeline_data)
 
     pipeline_data["cve_id"] = pipeline_data["cve_id"].astype(str).str.strip().str.upper()
+    pipeline_data["kb_id"] = pipeline_data["kb_id"].astype(str).str.strip().str.upper()
+
     pipeline_data = pipeline_data[pipeline_data["cve_id"].str.startswith("CVE-")]
 
     required_columns = [
@@ -533,6 +524,11 @@ def validate_data(input_csv: Path, mode: str) -> tuple[Path, dict[str, Any]]:
     )
 
     pipeline_data = pipeline_data.dropna(subset=required_columns)
+
+    if not pipeline_data.empty:
+        pipeline_data = pipeline_data.drop_duplicates(
+            subset=["kb_id", "cve_id", "month"]
+        )
 
     after_count = len(pipeline_data)
     dropped_count = before_count - after_count
@@ -548,12 +544,14 @@ def validate_data(input_csv: Path, mode: str) -> tuple[Path, dict[str, Any]]:
         "rows_dropped": int(dropped_count),
         "required_columns": required_columns,
         "drop_reason": "Rows missing cvss_score or attack_vector are removed.",
+        "deduplication": "Rows are deduplicated by kb_id, cve_id, and month.",
         "output": relative_path(output_path),
     }
 
     print_success(f"Rows before: {before_count}")
     print_success(f"Rows after: {after_count}")
     print_info(f"Rows dropped: {dropped_count}")
+    print_info("Deduplication: kb_id, cve_id, month")
     print_success(f"Output: {relative_path(output_path)}")
 
     if after_count == 0:
