@@ -72,6 +72,15 @@ PYTHON_EXE = sys.executable
 LOGGER = setup_logger(name="winshield", prefix="winshield")
 
 
+def close_logger() -> None:
+    """Close active logger handlers so log files can be cleaned."""
+
+    for handler in LOGGER.handlers[:]:
+        handler.flush()
+        handler.close()
+        LOGGER.removeHandler(handler)
+
+
 # ------------------------------------------------------------
 # GENERAL HELPERS
 # ------------------------------------------------------------
@@ -476,6 +485,7 @@ def main() -> int:
             print()
             print_success("Exiting WinShield+")
             LOGGER.info("WinShield+ exited")
+            close_logger()
             return 0
 
         if choice == "2":
@@ -496,8 +506,14 @@ def main() -> int:
 
         if choice in STAGES:
             label, script_path = STAGES[choice]
+
+            if label == "Clear Artefacts":
+                close_logger()
+
             return_code = run_stage(label, script_path)
-            LOGGER.info("%s exited with code %s", label, return_code)
+
+            if label != "Clear Artefacts":
+                LOGGER.info("%s exited with code %s", label, return_code)
 
             if return_code != 0:
                 print_warning(f"{label} exited: code {return_code}")
