@@ -49,7 +49,7 @@ MODEL_PIPELINE_SUMMARY_PATH = get_model_pipeline_summary_path()
 # REPORT SETTINGS
 # ------------------------------------------------------------
 
-REPORT_TITLE = "WinShield+ Runtime Risk Report"
+REPORT_TITLE = "WinShield+ Risk Report"
 
 
 # ------------------------------------------------------------

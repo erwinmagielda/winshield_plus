@@ -81,6 +81,16 @@ def close_logger() -> None:
         LOGGER.removeHandler(handler)
 
 
+def restart_logger() -> None:
+    """Restart the logger after artefact cleanup."""
+
+    global LOGGER
+
+    close_logger()
+    LOGGER = setup_logger(name="winshield", prefix="winshield")
+    LOGGER.info("WinShield+ logger restarted")
+
+
 # ------------------------------------------------------------
 # GENERAL HELPERS
 # ------------------------------------------------------------
@@ -531,7 +541,10 @@ def main() -> int:
 
             return_code = run_stage(label, script_path)
 
-            if label != "Clear Artefacts":
+            if label == "Clear Artefacts":
+                restart_logger()
+                LOGGER.info("Clear Artefacts exited with code %s", return_code)
+            else:
                 LOGGER.info("%s exited with code %s", label, return_code)
 
             if return_code != 0:

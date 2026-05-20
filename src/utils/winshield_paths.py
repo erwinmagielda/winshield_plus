@@ -159,6 +159,30 @@ def get_downloads_dir() -> Path:
     return get_path_from_config("downloads_dir", "downloads")
 
 
+def get_reports_dir() -> Path:
+    """Return generated reports directory."""
+
+    return get_results_dir() / "reports"
+
+
+def get_rankings_dir() -> Path:
+    """Return generated ranking output directory."""
+
+    return get_results_dir() / "rankings"
+
+
+def get_summaries_dir() -> Path:
+    """Return generated pipeline summaries directory."""
+
+    return get_results_dir() / "summaries"
+
+
+def get_charts_dir() -> Path:
+    """Return generated charts directory."""
+
+    return get_results_dir() / "charts"
+
+
 # ------------------------------------------------------------
 # CORE SCRIPT PATHS
 # ------------------------------------------------------------
@@ -271,6 +295,30 @@ def get_runtime_report_path() -> Path:
     """Return the runtime Markdown report output path."""
 
     return get_results_dir() / "winshield_report.md"
+
+
+def get_runtime_report_path() -> Path:
+    """Return runtime Markdown report output path."""
+
+    return get_reports_dir() / "winshield_report.md"
+
+
+def get_ranking_results_path() -> Path:
+    """Return ranking results output path."""
+
+    return get_rankings_dir() / "ranking_results.json"
+
+
+def get_model_setup_summary_path() -> Path:
+    """Return model setup summary output path."""
+
+    return get_summaries_dir() / "model_setup_run.json"
+
+
+def get_model_pipeline_summary_path() -> Path:
+    """Return model pipeline summary output path."""
+
+    return get_summaries_dir() / "model_pipeline_summary.json"
 
 
 # ------------------------------------------------------------
