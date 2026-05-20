@@ -13,7 +13,6 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
-from utils.winshield_paths import load_config
 
 
 # ------------------------------------------------------------
@@ -32,6 +31,7 @@ from utils.winshield_paths import (
     ensure_directory,
     get_ranking_results_path,
     get_runtime_report_path,
+    load_config,
 )
 
 

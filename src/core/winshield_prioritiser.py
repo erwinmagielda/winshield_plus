@@ -12,6 +12,22 @@ from __future__ import annotations
 
 import json
 import sys
+
+from utils.winshield_banner import (
+    print_error,
+    print_info,
+    print_section,
+    print_step,
+    print_success,
+    print_warning,
+)
+from utils.winshield_paths import (
+    ensure_directory,
+    get_models_dir,
+    get_results_dir,
+    get_runtime_dir,
+)
+from utils.winshield_risk import apply_risk_policy
 from core.winshield_reporter import generate_report
 from pathlib import Path
 from typing import Any
