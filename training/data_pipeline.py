@@ -188,8 +188,18 @@ def flatten_scans(mode: str) -> tuple[Path, dict[str, Any]]:
         with scan_path.open("r", encoding="utf-8") as file:
             scan = json.load(file)
 
+        missing_kbs = {
+            str(kb).strip().upper()
+            for kb in scan.get("MissingKbs", [])
+            if str(kb).strip()
+        }
+
         for patch in scan.get("KbEntries", []):
-            kb_id = patch.get("KB")
+            kb_id = str(patch.get("KB") or "").strip().upper()
+
+            if mode == "runtime" and kb_id not in missing_kbs:
+                continue
+
             months = patch.get("Months", [])
             cves = patch.get("Cves", [])
 
