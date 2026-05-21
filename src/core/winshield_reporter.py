@@ -26,8 +26,8 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 
-from utils.winshield_banner import print_success
-from utils.winshield_paths import (
+from utils.winshield_banner import print_error, print_success  # noqa: E402
+from utils.winshield_paths import (  # noqa: E402
     ensure_directory,
     get_model_pipeline_summary_path,
     get_ranking_results_path,
@@ -275,7 +275,7 @@ def append_model_evaluation(lines: list[str]) -> None:
     if not model_summary:
         lines.append(
             "Model evaluation is not available because "
-            "`results/model_pipeline_summary.json` was not found."
+            f"`{relative_path(MODEL_PIPELINE_SUMMARY_PATH)}` was not found."
         )
         lines.append("")
         return
@@ -359,6 +359,11 @@ def append_review_drivers(lines: list[str], results: list[dict[str, Any]]) -> No
     lines.append("## Review Drivers")
     lines.append("")
 
+    if not results:
+        lines.append("No review drivers were generated.")
+        lines.append("")
+        return
+
     for entry in results:
         kb_id = entry.get("kb_id", "Unknown")
         reason = entry.get("review_reason", "No review reason provided.")
@@ -437,9 +442,8 @@ def generate_report() -> Path:
 
     results = load_ranking_results()
     report = build_report(results)
-    output_path = save_report(report)
 
-    return output_path
+    return save_report(report)
 
 
 # ------------------------------------------------------------
@@ -455,7 +459,7 @@ def main() -> int:
         return 0
 
     except Exception as exc:
-        print(f"[X] Report generation failed: {exc}")
+        print_error(f"Report generation failed: {exc}")
         return 1
 
 

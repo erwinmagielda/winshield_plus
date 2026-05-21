@@ -24,22 +24,26 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 
-from utils.winshield_banner import (
+from utils.winshield_banner import (  # noqa: E402
     print_error,
     print_info,
     print_step,
     print_success,
     print_warning,
 )
-from utils.winshield_paths import (
+from utils.winshield_paths import (  # noqa: E402
     ensure_directory,
+    get_charts_dir,
     get_dataset_dir,
     get_downloads_dir,
     get_logs_dir,
     get_models_dir,
+    get_rankings_dir,
+    get_reports_dir,
     get_results_dir,
     get_runtime_dir,
     get_scan_source_dir,
+    get_summaries_dir,
 )
 
 
@@ -55,8 +59,24 @@ GENERATED_DIRS = {
     "logs": get_logs_dir(),
     "downloads": get_downloads_dir(),
     "models": get_models_dir(),
-    "results": get_results_dir(),
+    "reports": get_reports_dir(),
+    "rankings": get_rankings_dir(),
+    "summaries": get_summaries_dir(),
+    "charts": get_charts_dir(),
 }
+
+PLACEHOLDER_DIRS = [
+    get_dataset_dir(),
+    get_runtime_dir(),
+    get_logs_dir(),
+    get_downloads_dir(),
+    get_models_dir(),
+    get_results_dir(),
+    get_reports_dir(),
+    get_rankings_dir(),
+    get_summaries_dir(),
+    get_charts_dir(),
+]
 
 
 # ------------------------------------------------------------
@@ -98,15 +118,31 @@ def is_locked_file_error(error: OSError) -> bool:
 
 
 # ------------------------------------------------------------
-# CLEANUP HELPERS
+# DIRECTORY PREPARATION
 # ------------------------------------------------------------
 
 def prepare_generated_directories() -> None:
-    """Ensure all generated artefact directories exist."""
+    """Ensure generated artefact directories exist."""
 
-    for directory in GENERATED_DIRS.values():
+    for directory in PLACEHOLDER_DIRS:
         ensure_directory(directory)
 
+
+def write_gitkeep_files() -> None:
+    """Ensure .gitkeep placeholders exist in generated directories."""
+
+    for directory in PLACEHOLDER_DIRS:
+        ensure_directory(directory)
+
+        gitkeep_path = directory / ".gitkeep"
+
+        if not gitkeep_path.exists():
+            gitkeep_path.write_text("", encoding="utf-8")
+
+
+# ------------------------------------------------------------
+# CLEANUP HELPERS
+# ------------------------------------------------------------
 
 def remove_file(path: Path, result: CleanupResult) -> None:
     """Remove a file while safely handling locked files."""
@@ -149,7 +185,6 @@ def clear_directory_contents(directory: Path) -> CleanupResult:
     Clear generated contents from a directory.
 
     Preserves .gitkeep files so empty directories remain tracked by Git.
-    Locked files are skipped so cleanup can continue while WinShield+ is open.
     """
 
     ensure_directory(directory)
@@ -190,6 +225,18 @@ def clear_python_cache() -> CleanupResult:
     return result
 
 
+def merge_results(target: CleanupResult, source: CleanupResult) -> None:
+    """Merge one cleanup result into another."""
+
+    target.removed_count += source.removed_count
+    target.skipped_locked.extend(source.skipped_locked)
+    target.skipped_other.extend(source.skipped_other)
+
+
+# ------------------------------------------------------------
+# OPERATOR CONFIRMATION
+# ------------------------------------------------------------
+
 def confirm_cleanup() -> bool:
     """Ask the operator to confirm cleanup before deleting generated files."""
 
@@ -202,6 +249,7 @@ def confirm_cleanup() -> bool:
     print("    - Python cache artefacts")
     print()
     print_success(f"Preserved: {relative_path(SCANS_DIR)}")
+    print_success("Preserved: .gitkeep placeholders")
     print()
 
     response = input("Type YES to continue: ").strip()
@@ -209,12 +257,25 @@ def confirm_cleanup() -> bool:
     return response == "YES"
 
 
-def merge_results(target: CleanupResult, source: CleanupResult) -> None:
-    """Merge one cleanup result into another."""
+# ------------------------------------------------------------
+# CONSOLE OUTPUT
+# ------------------------------------------------------------
 
-    target.removed_count += source.removed_count
-    target.skipped_locked.extend(source.skipped_locked)
-    target.skipped_other.extend(source.skipped_other)
+def print_cleanup_plan() -> None:
+    """Print cleanup scope before confirmation."""
+
+    print_step("Checking source training scans")
+    print_success(f"Source training scans preserved: {relative_path(SCANS_DIR)}")
+    print_info(f"Generated directories checked: {len(GENERATED_DIRS)}")
+    print_info(f"Placeholder directories checked: {len(PLACEHOLDER_DIRS)}")
+    print()
+
+
+def print_removed_counts(removed_by_category: dict[str, int]) -> None:
+    """Print removed artefact counts by category."""
+
+    for label, removed_count in removed_by_category.items():
+        print(f"    {label}: {removed_count}")
 
 
 def print_skipped_paths(title: str, paths: list[Path]) -> None:
@@ -239,8 +300,6 @@ def print_skipped_paths(title: str, paths: list[Path]) -> None:
 def main() -> int:
     """Run the WinShield+ artefact cleanup workflow."""
 
-    print_step("Checking source training scans")
-
     prepare_generated_directories()
 
     if not SCANS_DIR.exists():
@@ -248,8 +307,7 @@ def main() -> int:
         print_info("Cleanup stopped to avoid removing data unexpectedly")
         return 1
 
-    print_success(f"Source training scans preserved: {relative_path(SCANS_DIR)}")
-    print()
+    print_cleanup_plan()
 
     if not confirm_cleanup():
         print()
@@ -271,11 +329,11 @@ def main() -> int:
     removed_by_category["pycache"] = pycache_result.removed_count
     merge_results(total_result, pycache_result)
 
+    write_gitkeep_files()
+
     print()
     print_success(f"Removed artefacts: {total_result.removed_count}")
-
-    for label, removed_count in removed_by_category.items():
-        print(f"    {label}: {removed_count}")
+    print_removed_counts(removed_by_category)
 
     print_skipped_paths("Locked artefacts skipped", total_result.skipped_locked)
     print_skipped_paths("Artefacts skipped due to errors", total_result.skipped_other)
@@ -283,6 +341,7 @@ def main() -> int:
     print()
     print_success("Clear Artefacts completed")
     print_success("Source training scans preserved")
+    print_success("Generated directory structure preserved")
 
     return 0
 

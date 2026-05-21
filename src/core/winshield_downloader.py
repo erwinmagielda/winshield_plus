@@ -1,9 +1,9 @@
 """
 WinShield+ downloader.
 
-Resolves and downloads an operator-selected missing Windows update package
-from the Microsoft Update Catalog using baseline constraints from the latest
-runtime scan.
+Resolves and downloads an operator-selected missing Windows update package from
+the Microsoft Update Catalog using baseline constraints from the latest runtime
+scan.
 
 This module does not install updates. It only downloads a selected package.
 """
@@ -32,14 +32,15 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 
-from utils.winshield_banner import (
+from utils.winshield_banner import (  # noqa: E402
     print_error,
     print_info,
     print_section,
     print_step,
     print_success,
+    print_warning,
 )
-from utils.winshield_paths import (
+from utils.winshield_paths import (  # noqa: E402
     ensure_directory,
     get_downloads_dir,
     get_runtime_dir,
@@ -89,6 +90,12 @@ class CatalogCandidate:
 
 
 @dataclass(frozen=True)
+class ScoredCandidate:
+    score: int
+    candidate: CatalogCandidate
+
+
+@dataclass(frozen=True)
 class BaselineConstraints:
     windows_gen: str
     display_version: str
@@ -107,6 +114,12 @@ def relative_path(path: Path) -> str:
         return path.relative_to(ROOT_DIR).as_posix()
     except ValueError:
         return str(path)
+
+
+def normalise_kb_id(value: Any) -> str:
+    """Return a normalised KB identifier."""
+
+    return str(value).strip().upper()
 
 
 # ------------------------------------------------------------
@@ -135,7 +148,12 @@ def load_scan_result(path: Path) -> dict[str, Any]:
         raise RuntimeError(f"Runtime scan not found: {relative_path(path)}")
 
     with path.open("r", encoding="utf-8") as file:
-        return json.load(file)
+        data = json.load(file)
+
+    if not isinstance(data, dict):
+        raise RuntimeError("Runtime scan has unexpected structure")
+
+    return data
 
 
 # ------------------------------------------------------------
@@ -190,7 +208,7 @@ def build_constraints(baseline: dict[str, Any]) -> BaselineConstraints:
 
 
 def print_constraints(constraints: BaselineConstraints) -> None:
-    """Print concise catalog matching constraints."""
+    """Print catalog matching constraints."""
 
     print_success(f"Windows generation: {constraints.windows_gen or 'Unknown'}")
     print_success(f"Display version: {constraints.display_version or 'Unknown'}")
@@ -240,7 +258,7 @@ def build_missing_list(scan_result: dict[str, Any]) -> list[MissingKbItem]:
     kb_entries = scan_result.get("KbEntries") or []
 
     kb_index = {
-        str(entry.get("KB")).upper(): entry
+        normalise_kb_id(entry.get("KB")): entry
         for entry in kb_entries
         if entry.get("KB")
     }
@@ -248,11 +266,13 @@ def build_missing_list(scan_result: dict[str, Any]) -> list[MissingKbItem]:
     missing_items: list[MissingKbItem] = []
 
     for kb in missing_kbs:
-        kb_id = str(kb).strip().upper()
+        kb_id = normalise_kb_id(kb)
+
         if not kb_id:
             continue
 
         update_type = str(kb_index.get(kb_id, {}).get("UpdateType") or "Unknown")
+
         missing_items.append(
             MissingKbItem(
                 kb_id=kb_id,
@@ -267,6 +287,7 @@ def print_missing_items(missing_items: list[MissingKbItem]) -> None:
     """Print selectable missing KB list."""
 
     print_section("Missing KBs")
+    print_success(f"Missing KBs available: {len(missing_items)}")
 
     for index, item in enumerate(missing_items, start=1):
         print(f"{index}) {item.kb_id} [{item.update_type}]")
@@ -312,10 +333,12 @@ def parse_search_candidates(html: str) -> list[CatalogCandidate]:
             continue
 
         update_id = row_id.split("_R", 1)[0]
+
         if not re.fullmatch(r"[0-9a-fA-F-]{36}", update_id):
             continue
 
         cells = table_row.find_all("td")
+
         if len(cells) < 8:
             continue
 
@@ -388,6 +411,7 @@ def score_candidate(
             score += 25
 
     display_version = constraints.display_version.lower()
+
     if display_version:
         if display_version in title:
             score += 25
@@ -404,34 +428,63 @@ def score_candidate(
     return score
 
 
+def score_candidates(
+    candidates: list[CatalogCandidate],
+    kb_id: str,
+    constraints: BaselineConstraints,
+) -> list[ScoredCandidate]:
+    """Score catalog candidates and return accepted candidates."""
+
+    scored_candidates: list[ScoredCandidate] = []
+
+    for candidate in candidates:
+        score = score_candidate(candidate, kb_id, constraints)
+
+        if score >= 0:
+            scored_candidates.append(
+                ScoredCandidate(
+                    score=score,
+                    candidate=candidate,
+                )
+            )
+
+    return sorted(scored_candidates, key=lambda item: item.score, reverse=True)
+
+
 def choose_best_candidate(
     candidates: list[CatalogCandidate],
     kb_id: str,
     constraints: BaselineConstraints,
-) -> tuple[CatalogCandidate | None, str | None]:
+) -> tuple[ScoredCandidate | None, str | None]:
     """Select the highest-confidence candidate or return a rejection reason."""
 
-    scored_candidates = [
-        (score_candidate(candidate, kb_id, constraints), candidate)
-        for candidate in candidates
-    ]
+    scored_candidates = score_candidates(
+        candidates=candidates,
+        kb_id=kb_id,
+        constraints=constraints,
+    )
 
-    accepted_candidates = [
-        (score, candidate)
-        for score, candidate in scored_candidates
-        if score >= 0
-    ]
-
-    if not accepted_candidates:
+    if not scored_candidates:
         return None, "No candidate matched baseline constraints"
 
-    accepted_candidates.sort(key=lambda item: item[0], reverse=True)
-    best_score, best_candidate = accepted_candidates[0]
+    best_candidate = scored_candidates[0]
 
-    if best_score < MIN_CONFIDENCE_SCORE:
-        return None, f"Ambiguous match below confidence threshold ({best_score})"
+    if best_candidate.score < MIN_CONFIDENCE_SCORE:
+        return None, f"Ambiguous match below confidence threshold ({best_candidate.score})"
 
     return best_candidate, None
+
+
+def print_candidate_scores(scored_candidates: list[ScoredCandidate]) -> None:
+    """Print the highest scoring catalog candidates."""
+
+    print_info(f"Candidates matching baseline: {len(scored_candidates)}")
+
+    for index, scored_candidate in enumerate(scored_candidates[:5], start=1):
+        print(
+            f"    {index}) Score {scored_candidate.score} | "
+            f"{scored_candidate.candidate.title}"
+        )
 
 
 # ------------------------------------------------------------
@@ -504,17 +557,18 @@ def main() -> int:
     """Run the WinShield+ update downloader workflow."""
 
     try:
-        print_section("Runtime Scan")
+        print_section("Runtime scan")
         scan_path = find_latest_runtime_scan()
         print_success(f"Runtime scan: {relative_path(scan_path)}")
 
         scan_result = load_scan_result(scan_path)
 
-        print_section("Catalog Constraints")
+        print_section("Catalog constraints")
         constraints = build_constraints(scan_result.get("Baseline") or {})
         print_constraints(constraints)
 
         missing_items = build_missing_list(scan_result)
+
         if not missing_items:
             print()
             print_success("No missing KBs detected")
@@ -523,18 +577,26 @@ def main() -> int:
         print_missing_items(missing_items)
 
         selected_item = select_missing_kb(missing_items)
+
         if not selected_item:
             return 1
 
         session = build_session()
 
-        print_section("Catalog Search")
+        print_section("Catalog search")
         print_step(f"Searching Microsoft Update Catalog: {selected_item.kb_id}")
 
         html = fetch_text(session, SEARCH_URL, params={"q": selected_item.kb_id})
         candidates = parse_search_candidates(html)
 
         print_success(f"Candidates found: {len(candidates)}")
+
+        scored_candidates = score_candidates(
+            candidates=candidates,
+            kb_id=selected_item.kb_id,
+            constraints=constraints,
+        )
+        print_candidate_scores(scored_candidates)
 
         best_candidate, rejection_reason = choose_best_candidate(
             candidates=candidates,
@@ -546,21 +608,25 @@ def main() -> int:
             print_error(str(rejection_reason))
             return 1
 
-        print_success(f"Selected candidate: {best_candidate.title}")
-        print_info(f"Classification: {best_candidate.classification}")
-        print_info(f"Last updated: {best_candidate.last_updated}")
-        print_info(f"Size: {best_candidate.size}")
+        selected_candidate = best_candidate.candidate
 
-        print_section("Resolve Download")
+        print_success(f"Selected candidate score: {best_candidate.score}")
+        print_success(f"Selected candidate: {selected_candidate.title}")
+        print_info(f"Classification: {selected_candidate.classification}")
+        print_info(f"Last updated: {selected_candidate.last_updated}")
+        print_info(f"Size: {selected_candidate.size}")
+
+        print_section("Resolve download")
         print_step("Resolving package URL")
 
         dialog_html = fetch_text(
             session,
             DOWNLOAD_DIALOG_URL,
-            params=build_dialog_params(best_candidate.update_id),
+            params=build_dialog_params(selected_candidate.update_id),
         )
 
         download_urls = extract_download_urls(dialog_html)
+
         if not download_urls:
             print_error("Download URL not found")
             return 1
@@ -569,6 +635,7 @@ def main() -> int:
 
         print_section("Download")
         print_step("Downloading selected package")
+        print_info(f"Download directory: {relative_path(DOWNLOADS_DIR)}")
 
         output_path = download_file(
             session=session,
@@ -585,7 +652,7 @@ def main() -> int:
 
     except KeyboardInterrupt:
         print()
-        print_error("Download Update cancelled")
+        print_warning("Download Update cancelled")
         return 130
 
     except Exception as exc:

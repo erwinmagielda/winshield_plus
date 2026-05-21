@@ -27,7 +27,7 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 
-from utils.winshield_banner import (
+from utils.winshield_banner import (  # noqa: E402
     print_error,
     print_info,
     print_section,
@@ -35,7 +35,7 @@ from utils.winshield_banner import (
     print_success,
     print_warning,
 )
-from utils.winshield_paths import (
+from utils.winshield_paths import (  # noqa: E402
     ensure_directory,
     get_downloads_dir,
 )
@@ -83,14 +83,11 @@ def find_packages(downloads_dir: Path) -> list[Path]:
 
     ensure_directory(downloads_dir)
 
-    packages: list[Path] = []
-
-    for path in downloads_dir.iterdir():
-        if not path.is_file():
-            continue
-
-        if path.suffix.lower() in (".msu", ".cab"):
-            packages.append(path)
+    packages = [
+        path
+        for path in downloads_dir.iterdir()
+        if path.is_file() and path.suffix.lower() in (".msu", ".cab")
+    ]
 
     return sorted(packages, key=lambda path: path.name.lower())
 
@@ -101,6 +98,50 @@ def extract_kb_label(filename: str) -> str:
     match = re.search(r"(KB\d{4,8})", filename, flags=re.IGNORECASE)
 
     return match.group(1).upper() if match else filename
+
+
+def package_install_method(package_path: Path) -> str:
+    """Return the Windows servicing method for a package."""
+
+    extension = package_path.suffix.lower()
+
+    if extension == ".msu":
+        return "WUSA"
+
+    if extension == ".cab":
+        return "DISM"
+
+    return "Unsupported"
+
+
+# ------------------------------------------------------------
+# COMMAND BUILDING
+# ------------------------------------------------------------
+
+def build_install_command(package_path: Path) -> list[str]:
+    """Build the Windows servicing command for a selected package."""
+
+    extension = package_path.suffix.lower()
+
+    if extension == ".msu":
+        return [
+            "wusa.exe",
+            str(package_path),
+            "/quiet",
+            "/norestart",
+        ]
+
+    if extension == ".cab":
+        return [
+            "dism.exe",
+            "/online",
+            "/add-package",
+            f"/packagepath:{package_path}",
+            "/quiet",
+            "/norestart",
+        ]
+
+    raise RuntimeError(f"Unsupported package type: {relative_path(package_path)}")
 
 
 # ------------------------------------------------------------
@@ -122,31 +163,9 @@ def run_command(command: list[str]) -> int:
 def install_package(package_path: Path) -> int:
     """Install a selected .msu or .cab package using the matching Windows tool."""
 
-    extension = package_path.suffix.lower()
+    command = build_install_command(package_path)
 
-    if extension == ".msu":
-        return run_command(
-            [
-                "wusa.exe",
-                str(package_path),
-                "/quiet",
-                "/norestart",
-            ]
-        )
-
-    if extension == ".cab":
-        return run_command(
-            [
-                "dism.exe",
-                "/online",
-                "/add-package",
-                f"/packagepath:{package_path}",
-                "/quiet",
-                "/norestart",
-            ]
-        )
-
-    raise RuntimeError(f"Unsupported package type: {relative_path(package_path)}")
+    return run_command(command)
 
 
 # ------------------------------------------------------------
@@ -165,11 +184,13 @@ def safe_input(prompt: str) -> str:
 def select_package(packages: list[Path]) -> Path | None:
     """Ask the operator to select a package from the available downloads."""
 
-    print_section("Available Packages")
+    print_section("Available packages")
 
     for index, package_path in enumerate(packages, start=1):
         kb_label = extract_kb_label(package_path.name)
-        print(f"{index}) {kb_label} | {package_path.name}")
+        method = package_install_method(package_path)
+
+        print(f"{index}) {kb_label} | {method} | {package_path.name}")
 
     raw_selection = safe_input("\nSelect package: ").strip()
 
@@ -204,6 +225,10 @@ def print_install_result(exit_code: int) -> int:
         print_info("Restart required")
         return 0
 
+    if exit_code == 2359302:
+        print_warning("Update is already installed or not applicable")
+        return 0
+
     print_error("Installation failed or was rejected by Windows servicing")
     return 1
 
@@ -224,16 +249,16 @@ def main() -> int:
             return 1
 
         print_success("Administrator privileges confirmed")
+
+        print_section("Package discovery")
         print_success(f"Downloads directory: {relative_path(DOWNLOADS_DIR)}")
 
-        print_section("Package Discovery")
         packages = find_packages(DOWNLOADS_DIR)
+        print_success(f"Packages found: {len(packages)}")
 
         if not packages:
             print_success("No update packages found")
             return 0
-
-        print_success(f"Packages found: {len(packages)}")
 
         selected_package = select_package(packages)
 
@@ -241,10 +266,13 @@ def main() -> int:
             return 1
 
         kb_label = extract_kb_label(selected_package.name)
+        install_method = package_install_method(selected_package)
 
         print_section("Install")
         print_step(f"Selected package: {kb_label}")
         print_info(f"Source: {relative_path(selected_package)}")
+        print_info(f"Package type: {selected_package.suffix.lower()}")
+        print_info(f"Install method: {install_method}")
         print_info("Automatic restart disabled")
 
         exit_code = install_package(selected_package)

@@ -73,7 +73,7 @@ LOGGER = setup_logger(name="winshield", prefix="winshield")
 
 
 def close_logger() -> None:
-    """Close active logger handlers so log files can be cleaned."""
+    """Close active logger handlers so generated logs can be cleaned."""
 
     for handler in LOGGER.handlers[:]:
         handler.flush()
@@ -82,7 +82,7 @@ def close_logger() -> None:
 
 
 def restart_logger() -> None:
-    """Restart the logger after artefact cleanup."""
+    """Restart file logging after artefact cleanup."""
 
     global LOGGER
 
@@ -111,7 +111,7 @@ def utc_timestamp() -> str:
 
 
 def prepare_environment() -> bool:
-    """Prepare runtime directories before the menu starts."""
+    """Prepare required runtime directories before the menu starts."""
 
     try:
         prepare_runtime_directories()
@@ -119,11 +119,12 @@ def prepare_environment() -> bool:
 
     except Exception as exc:
         print_error(f"Failed to prepare runtime directories: {exc}")
+        LOGGER.exception("Runtime directory preparation failed")
         return False
 
 
 # ------------------------------------------------------------
-# STAGES
+# MENU STAGES
 # ------------------------------------------------------------
 
 STAGES: dict[str, tuple[str, Path]] = {
@@ -139,7 +140,7 @@ STAGES: dict[str, tuple[str, Path]] = {
 # ------------------------------------------------------------
 
 def models_are_present() -> bool:
-    """Return True if the required trained model artefacts are present."""
+    """Return True if all required trained model artefacts are present."""
 
     required_artefacts = [
         MODELS_DIR / "regression_model.joblib",
@@ -156,14 +157,17 @@ def models_are_present() -> bool:
         if not artefact.is_file()
     ]
 
-    if missing_artefacts:
-        print_error("Required model artefacts missing")
-        for artefact in missing_artefacts:
-            print(f"    - {relative_path(artefact)}")
+    if not missing_artefacts:
+        return True
 
-        return False
+    print_error("Required model artefacts missing")
+    LOGGER.warning("Required model artefacts missing")
 
-    return True
+    for artefact in missing_artefacts:
+        print(f"    - {relative_path(artefact)}")
+        LOGGER.warning("Missing model artefact: %s", relative_path(artefact))
+
+    return False
 
 
 def runtime_scan_is_present() -> bool:
@@ -173,60 +177,36 @@ def runtime_scan_is_present() -> bool:
 
 
 # ------------------------------------------------------------
-# STAGE EXECUTION
+# SCRIPT EXECUTION
 # ------------------------------------------------------------
-
-def run_stage(label: str, script_path: Path) -> int:
-    """Run a single workflow stage and return its exit code."""
-
-    print_workflow_header(label)
-
-    if not script_path.is_file():
-        print_error(f"Stage script missing: {relative_path(script_path)}")
-        LOGGER.error("Stage script missing: %s", relative_path(script_path))
-        return 1
-
-    print_step(f"Running {relative_path(script_path)}")
-    LOGGER.info("Running stage: %s (%s)", label, relative_path(script_path))
-
-    try:
-        completed = subprocess.run(
-            [PYTHON_EXE, str(script_path)],
-            cwd=ROOT_DIR,
-            check=False,
-        )
-
-    except KeyboardInterrupt:
-        print()
-        print_warning(f"{label} cancelled")
-        LOGGER.warning("%s cancelled", label)
-        return 130
-
-    except Exception as exc:
-        print_error(f"{label} failed to launch: {exc}")
-        LOGGER.exception("%s failed to launch", label)
-        return 1
-
-    return_code = int(completed.returncode or 0)
-
-    if return_code != 0:
-        print()
-        print_error(f"{label} failed: exit code {return_code}")
-        LOGGER.error("%s failed with exit code %s", label, return_code)
-    else:
-        LOGGER.info("%s completed successfully", label)
-
-    return return_code
-
 
 def run_python_script_live(
     label: str,
     script_path: Path,
-    args: list[str],
+    args: list[str] | None = None,
 ) -> tuple[int, str]:
-    """Run a Python script and stream its output live to the console."""
+    """
+    Run a Python script and stream its output live to the console.
+
+    Child modules own their detailed operational printing. The main runner only
+    launches each stage, records status, and preserves the visible evidence chain.
+    """
+
+    if args is None:
+        args = []
 
     output_lines: list[str] = []
+
+    if not script_path.is_file():
+        print_error(f"Stage script missing: {relative_path(script_path)}")
+        LOGGER.error("Stage script missing: %s", relative_path(script_path))
+        return 1, ""
+
+    LOGGER.info(
+        "Running stage: %s (%s)",
+        label,
+        relative_path(script_path),
+    )
 
     try:
         process = subprocess.Popen(
@@ -261,6 +241,61 @@ def run_python_script_live(
         return 1, "".join(output_lines)
 
 
+def run_single_stage(label: str, script_path: Path) -> int:
+    """Run a single menu stage and return its exit code."""
+
+    print_workflow_header(label)
+    print_step(f"Running {relative_path(script_path)}")
+
+    return_code, _ = run_python_script_live(
+        label=label,
+        script_path=script_path,
+    )
+
+    if return_code == 0:
+        LOGGER.info("%s completed successfully", label)
+    else:
+        print()
+        print_error(f"{label} failed: exit code {return_code}")
+        LOGGER.error("%s failed with exit code %s", label, return_code)
+
+    return return_code
+
+
+# ------------------------------------------------------------
+# SUMMARY EXPORT
+# ------------------------------------------------------------
+
+def save_model_setup_summary(summary: dict[str, Any]) -> None:
+    """Save model setup execution details as structured JSON."""
+
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+
+    with MODEL_SETUP_RUN_PATH.open("w", encoding="utf-8") as file:
+        json.dump(summary, file, indent=2)
+
+    print_success(f"Summary saved: {relative_path(MODEL_SETUP_RUN_PATH)}")
+    LOGGER.info("Model Setup summary saved: %s", relative_path(MODEL_SETUP_RUN_PATH))
+
+
+def build_stage_summary(
+    label: str,
+    script_path: Path,
+    args: list[str],
+) -> dict[str, Any]:
+    """Build the initial summary object for a workflow stage."""
+
+    return {
+        "label": label,
+        "script": relative_path(script_path),
+        "args": args,
+        "started_at_utc": utc_timestamp(),
+        "finished_at_utc": None,
+        "exit_code": None,
+        "status": "running",
+    }
+
+
 # ------------------------------------------------------------
 # MODEL SETUP PIPELINE
 # ------------------------------------------------------------
@@ -272,11 +307,9 @@ def run_model_setup() -> int:
     LOGGER.info("Model Setup started")
 
     pipeline = [
-        ("Data Pipeline", DATA_PIPELINE_SCRIPT, ["--mode", "training"]),
-        ("Model Pipeline", MODEL_PIPELINE_SCRIPT, []),
+        ("Data pipeline", DATA_PIPELINE_SCRIPT, ["--mode", "training"]),
+        ("Model pipeline", MODEL_PIPELINE_SCRIPT, []),
     ]
-
-    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
     summary: dict[str, Any] = {
         "pipeline": "model_setup",
@@ -290,41 +323,11 @@ def run_model_setup() -> int:
     print()
 
     for label, script_path, args in pipeline:
-
-        stage_summary: dict[str, Any] = {
-            "label": label,
-            "script": relative_path(script_path),
-            "args": args,
-            "started_at_utc": utc_timestamp(),
-            "finished_at_utc": None,
-            "exit_code": None,
-            "status": "running",
-            "stdout": "",
-            "stderr": "",
-        }
-
-        if not script_path.is_file():
-            print_error(f"Stage script missing: {relative_path(script_path)}")
-            LOGGER.error(
-                "Model Setup stage script missing: %s",
-                relative_path(script_path),
-            )
-
-            stage_summary["finished_at_utc"] = utc_timestamp()
-            stage_summary["exit_code"] = 1
-            stage_summary["status"] = "missing_script"
-
-            summary["stages"].append(stage_summary)
-            summary["finished_at_utc"] = utc_timestamp()
-            summary["status"] = "failed"
-
-            save_model_setup_summary(summary)
-            return 1
+        stage_summary = build_stage_summary(label, script_path, args)
 
         print_step(f"Running {label}")
-        LOGGER.info("Model Setup running stage: %s", label)
 
-        return_code, stage_output = run_python_script_live(
+        return_code, _ = run_python_script_live(
             label=label,
             script_path=script_path,
             args=args,
@@ -332,35 +335,28 @@ def run_model_setup() -> int:
 
         stage_summary["finished_at_utc"] = utc_timestamp()
         stage_summary["exit_code"] = return_code
-        stage_summary["stdout"] = stage_output
-        stage_summary["stderr"] = ""
-
-        if return_code == 130:
-            stage_summary["status"] = "cancelled"
-
-            summary["stages"].append(stage_summary)
-            summary["finished_at_utc"] = utc_timestamp()
-            summary["status"] = "cancelled"
-
-            save_model_setup_summary(summary)
-            return 130
 
         if return_code == 0:
             stage_summary["status"] = "completed"
             LOGGER.info("Model Setup stage completed: %s", label)
+            summary["stages"].append(stage_summary)
+            continue
+
+        if return_code == 130:
+            stage_summary["status"] = "cancelled"
+            summary["status"] = "cancelled"
         else:
             stage_summary["status"] = "failed"
+            summary["status"] = "failed"
             print_error(f"{label} failed: exit code {return_code}")
             LOGGER.error("Model Setup stage failed: %s | code %s", label, return_code)
 
-            summary["stages"].append(stage_summary)
-            summary["finished_at_utc"] = utc_timestamp()
-            summary["status"] = "failed"
-
-            save_model_setup_summary(summary)
-            return return_code
-
         summary["stages"].append(stage_summary)
+        summary["finished_at_utc"] = utc_timestamp()
+
+        save_model_setup_summary(summary)
+
+        return return_code
 
     summary["finished_at_utc"] = utc_timestamp()
     summary["status"] = "completed"
@@ -372,18 +368,6 @@ def run_model_setup() -> int:
     LOGGER.info("Model Setup completed")
 
     return 0
-
-
-def save_model_setup_summary(summary: dict[str, Any]) -> None:
-    """Save model setup execution details as structured JSON."""
-
-    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-
-    with MODEL_SETUP_RUN_PATH.open("w", encoding="utf-8") as file:
-        json.dump(summary, file, indent=2)
-
-    print_success(f"Summary saved: {relative_path(MODEL_SETUP_RUN_PATH)}")
-    LOGGER.info("Model Setup summary saved: %s", relative_path(MODEL_SETUP_RUN_PATH))
 
 
 # ------------------------------------------------------------
@@ -408,44 +392,27 @@ def run_runtime_pipeline() -> int:
         return 1
 
     pipeline = [
-        ("Runtime Data Pipeline", DATA_PIPELINE_SCRIPT, ["--mode", "runtime"]),
-        ("Risk Prioritiser", PRIORITISER_SCRIPT, []),
+        ("Runtime data pipeline", DATA_PIPELINE_SCRIPT, ["--mode", "runtime"]),
+        ("Risk prioritiser", PRIORITISER_SCRIPT, []),
     ]
 
     for label, script_path, args in pipeline:
-
-        if not script_path.is_file():
-            print_error(f"Stage script missing: {relative_path(script_path)}")
-            LOGGER.error("Rank Risk stage script missing: %s", relative_path(script_path))
-            return 1
-
         print_step(f"Running {label}")
-        LOGGER.info("Rank Risk running stage: %s", label)
 
-        try:
-            result = subprocess.run(
-                [PYTHON_EXE, str(script_path), *args],
-                cwd=ROOT_DIR,
-                check=False,
-            )
+        return_code, _ = run_python_script_live(
+            label=label,
+            script_path=script_path,
+            args=args,
+        )
 
-        except KeyboardInterrupt:
-            print()
-            print_warning("Rank Risk cancelled")
-            LOGGER.warning("Rank Risk cancelled")
-            return 130
+        if return_code == 0:
+            LOGGER.info("Rank Risk stage completed: %s", label)
+            continue
 
-        except Exception as exc:
-            print_error(f"{label} failed to launch: {exc}")
-            LOGGER.exception("Rank Risk stage failed to launch: %s", label)
-            return 1
+        print_error(f"{label} failed: exit code {return_code}")
+        LOGGER.error("Rank Risk stage failed: %s | code %s", label, return_code)
 
-        if result.returncode != 0:
-            print_error(f"{label} failed: exit code {result.returncode}")
-            LOGGER.error("Rank Risk stage failed: %s | code %s", label, result.returncode)
-            return int(result.returncode)
-
-        LOGGER.info("Rank Risk stage completed: %s", label)
+        return return_code
 
     print()
     print_success("Rank Risk completed")
@@ -492,6 +459,83 @@ def read_choice() -> str:
 
 
 # ------------------------------------------------------------
+# MENU HANDLERS
+# ------------------------------------------------------------
+
+def handle_clear_artefacts(label: str, script_path: Path) -> int:
+    """Run artefact cleanup while safely restarting file logging afterwards."""
+
+    close_logger()
+
+    return_code = run_single_stage(label, script_path)
+
+    restart_logger()
+    LOGGER.info("Clear Artefacts exited with code %s", return_code)
+
+    return return_code
+
+
+def handle_single_stage(label: str, script_path: Path) -> int:
+    """Run a standard single-script menu stage."""
+
+    return_code = run_single_stage(label, script_path)
+    LOGGER.info("%s exited with code %s", label, return_code)
+
+    return return_code
+
+
+def handle_menu_choice(choice: str) -> int | None:
+    """Handle one menu choice and return an exit code when exiting."""
+
+    LOGGER.info("Menu option selected: %s", choice)
+
+    if choice == "7":
+        print()
+        print_success("Exiting WinShield+")
+        LOGGER.info("WinShield+ exited")
+        close_logger()
+        return 0
+
+    if choice == "2":
+        return_code = run_runtime_pipeline()
+        LOGGER.info("Rank Risk exited with code %s", return_code)
+
+        if return_code != 0:
+            print_warning(f"Rank Risk exited: code {return_code}")
+
+        return None
+
+    if choice == "6":
+        return_code = run_model_setup()
+        LOGGER.info("Model Setup exited with code %s", return_code)
+
+        if return_code != 0:
+            print_warning(f"Model Setup exited: code {return_code}")
+
+        return None
+
+    if choice in STAGES:
+        label, script_path = STAGES[choice]
+
+        if label == "Clear Artefacts":
+            return_code = handle_clear_artefacts(label, script_path)
+        else:
+            return_code = handle_single_stage(label, script_path)
+
+        if return_code != 0:
+            print_warning(f"{label} exited: code {return_code}")
+
+        return None
+
+    print()
+    print_warning("Invalid selection")
+    LOGGER.warning("Invalid menu selection: %s", choice)
+    print()
+
+    return None
+
+
+# ------------------------------------------------------------
 # MAIN LOOP
 # ------------------------------------------------------------
 
@@ -505,56 +549,13 @@ def main() -> int:
         return 1
 
     while True:
-
         print_menu()
+
         choice = read_choice()
-        LOGGER.info("Menu option selected: %s", choice)
+        exit_code = handle_menu_choice(choice)
 
-        if choice == "7":
-            print()
-            print_success("Exiting WinShield+")
-            LOGGER.info("WinShield+ exited")
-            close_logger()
-            return 0
-
-        if choice == "2":
-            return_code = run_runtime_pipeline()
-            LOGGER.info("Rank Risk exited with code %s", return_code)
-
-            if return_code != 0:
-                print_warning(f"Rank Risk exited: code {return_code}")
-            continue
-
-        if choice == "6":
-            return_code = run_model_setup()
-            LOGGER.info("Model Setup exited with code %s", return_code)
-
-            if return_code != 0:
-                print_warning(f"Model Setup exited: code {return_code}")
-            continue
-
-        if choice in STAGES:
-            label, script_path = STAGES[choice]
-
-            if label == "Clear Artefacts":
-                close_logger()
-
-            return_code = run_stage(label, script_path)
-
-            if label == "Clear Artefacts":
-                restart_logger()
-                LOGGER.info("Clear Artefacts exited with code %s", return_code)
-            else:
-                LOGGER.info("%s exited with code %s", label, return_code)
-
-            if return_code != 0:
-                print_warning(f"{label} exited: code {return_code}")
-            continue
-
-        print()
-        print_warning("Invalid selection")
-        LOGGER.warning("Invalid menu selection: %s", choice)
-        print()
+        if exit_code is not None:
+            return exit_code
 
 
 # ------------------------------------------------------------

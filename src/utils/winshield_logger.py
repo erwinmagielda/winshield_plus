@@ -1,8 +1,8 @@
 """
 WinShield+ logging utilities.
 
-Creates timestamped log files for runtime operations while keeping terminal
-output separate from file logging.
+Creates timestamped file logs for runtime operations while keeping terminal
+output controlled by the banner and print helper utilities.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from utils.winshield_paths import ensure_directory, get_logs_dir
 
 
 # ------------------------------------------------------------
-# LOGGER CONFIGURATION
+# LOG PATHS
 # ------------------------------------------------------------
 
 def get_log_path(prefix: str = "winshield") -> Path:
@@ -29,20 +29,21 @@ def get_log_path(prefix: str = "winshield") -> Path:
     return logs_dir / f"{prefix}_{timestamp}.log"
 
 
-def setup_logger(name: str = "winshield", prefix: str = "winshield") -> logging.Logger:
-    """
-    Create and return a configured file logger.
+# ------------------------------------------------------------
+# LOGGER HANDLERS
+# ------------------------------------------------------------
 
-    Existing handlers are cleared so repeated setup calls do not duplicate log
-    entries in the same process.
-    """
+def close_logger_handlers(logger: logging.Logger) -> None:
+    """Flush, close, and remove all handlers from a logger."""
 
-    logger = logging.getLogger(name)
-    logger.setLevel(logging.INFO)
-    logger.handlers.clear()
-    logger.propagate = False
+    for handler in logger.handlers[:]:
+        handler.flush()
+        handler.close()
+        logger.removeHandler(handler)
 
-    log_path = get_log_path(prefix)
+
+def build_file_handler(log_path: Path) -> logging.FileHandler:
+    """Build a configured file handler for WinShield+ logs."""
 
     file_handler = logging.FileHandler(log_path, encoding="utf-8")
     file_handler.setLevel(logging.INFO)
@@ -53,6 +54,34 @@ def setup_logger(name: str = "winshield", prefix: str = "winshield") -> logging.
     )
 
     file_handler.setFormatter(formatter)
+
+    return file_handler
+
+
+# ------------------------------------------------------------
+# LOGGER SETUP
+# ------------------------------------------------------------
+
+def setup_logger(
+    name: str = "winshield",
+    prefix: str = "winshield",
+) -> logging.Logger:
+    """
+    Create and return a configured file logger.
+
+    Existing handlers are closed before a new handler is attached. This avoids
+    duplicate log entries and releases old log files before artefact cleanup.
+    """
+
+    logger = logging.getLogger(name)
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+
+    close_logger_handlers(logger)
+
+    log_path = get_log_path(prefix)
+    file_handler = build_file_handler(log_path)
+
     logger.addHandler(file_handler)
 
     logger.info("WinShield+ logger started")

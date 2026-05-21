@@ -1,7 +1,8 @@
 """
 WinShield+ terminal banner utilities.
 
-Keeps menu and workflow headers consistent across the CLI.
+Keeps menu headers, workflow headers, section headers, and status messages
+consistent across the command-line interface.
 """
 
 from __future__ import annotations
@@ -23,7 +24,7 @@ WINSHIELD_LOGO = r"""
 """
 
 PROJECT_SUBTITLE = "Windows Patch Risk Prioritisation"
-LINE = "=" * 60
+HEADER_LINE = "=" * 60
 
 
 # ------------------------------------------------------------
@@ -37,21 +38,21 @@ def print_menu_header() -> None:
     print(WINSHIELD_LOGO)
     print(PROJECT_SUBTITLE)
     print()
-    print(LINE)
+    print(HEADER_LINE)
     print()
 
 
 def print_workflow_header(title: str) -> None:
-    """Print a workflow section header without repeating the logo."""
+    """Print a top-level workflow header without repeating the logo."""
 
     print()
     print(title)
-    print(LINE)
+    print(HEADER_LINE)
     print()
 
 
 def print_section(title: str) -> None:
-    """Print a smaller section title."""
+    """Print an internal workflow section header."""
 
     print()
     print(title)
@@ -62,22 +63,22 @@ def print_section(title: str) -> None:
 # STATUS PRINTING
 # ------------------------------------------------------------
 
-def print_info(message: str) -> None:
-    """Print an informational message."""
-
-    print(f"[i] {message}")
-
-
 def print_step(message: str) -> None:
-    """Print a running step message."""
+    """Print an active operation message."""
 
     print(f"[*] {message}")
 
 
 def print_success(message: str) -> None:
-    """Print a success message."""
+    """Print a successful operation message."""
 
     print(f"[+] {message}")
+
+
+def print_info(message: str) -> None:
+    """Print an informational message."""
+
+    print(f"[i] {message}")
 
 
 def print_warning(message: str) -> None:

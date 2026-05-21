@@ -7,7 +7,7 @@ Runs the model training workflow:
 3. Train the clustering model.
 
 Requires data/dataset/validated_dataset.csv to already exist.
-Exports a model pipeline summary to results/model_pipeline_summary.json.
+Exports a model pipeline summary to results/summaries/.
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 
-from utils.winshield_banner import (
+from utils.winshield_banner import (  # noqa: E402
     print_error,
     print_info,
     print_section,
@@ -40,12 +40,13 @@ from utils.winshield_banner import (
     print_success,
     print_warning,
 )
-from utils.winshield_paths import (
+from utils.winshield_paths import (  # noqa: E402
     ensure_directory,
-    get_dataset_dir,
+    get_charts_dir,
     get_model_pipeline_summary_path,
     get_models_dir,
-    get_results_dir,
+    get_summaries_dir,
+    get_validated_dataset_path,
 )
 
 
@@ -55,11 +56,10 @@ from utils.winshield_paths import (
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 
-DATASET_DIR = get_dataset_dir()
-RESULTS_DIR = get_results_dir()
+VALIDATED_DATASET_PATH = get_validated_dataset_path()
 MODELS_DIR = get_models_dir()
-
-VALIDATED_DATASET_PATH = DATASET_DIR / "validated_dataset.csv"
+SUMMARIES_DIR = get_summaries_dir()
+CHARTS_DIR = get_charts_dir()
 
 REGRESSION_SCRIPT = SCRIPT_DIR / "train_regression.py"
 CLASSIFICATION_SCRIPT = SCRIPT_DIR / "train_classification.py"
@@ -117,18 +117,18 @@ def utc_timestamp() -> str:
 
 
 def print_pipeline_header() -> None:
-    """Print model pipeline header."""
+    """Print the model pipeline header."""
 
     print()
-    print("Model Pipeline")
+    print("Model pipeline")
     print("=" * 60)
 
 
 def prepare_pipeline_directories() -> None:
     """Ensure model pipeline output directories exist."""
 
-    ensure_directory(RESULTS_DIR)
-    ensure_directory(MODELS_DIR)
+    for directory in [MODELS_DIR, SUMMARIES_DIR, CHARTS_DIR]:
+        ensure_directory(directory)
 
 
 def validate_required_inputs() -> tuple[bool, str | None]:
@@ -137,7 +137,7 @@ def validate_required_inputs() -> tuple[bool, str | None]:
     if not VALIDATED_DATASET_PATH.is_file():
         return (
             False,
-            "Validated dataset missing. Run Data Pipeline in training mode first.",
+            "Validated dataset missing. Run Data pipeline in training mode first.",
         )
 
     return True, None
@@ -235,6 +235,10 @@ def build_evaluation_summary(stage_key: str, output: str) -> dict[str, Any]:
     }
 
 
+# ------------------------------------------------------------
+# METRIC PRINTING
+# ------------------------------------------------------------
+
 def print_metric(label: str, value: Any, decimals: int = 4) -> None:
     """Print one metric line."""
 
@@ -305,7 +309,7 @@ def build_artefact_summary() -> dict[str, Any]:
 def save_model_pipeline_summary(summary: dict[str, Any]) -> None:
     """Save model pipeline summary JSON."""
 
-    ensure_directory(RESULTS_DIR)
+    ensure_directory(SUMMARY_PATH.parent)
 
     with SUMMARY_PATH.open("w", encoding="utf-8") as file:
         json.dump(summary, file, indent=2)
@@ -354,7 +358,7 @@ def run_stage(
 
     try:
         result = subprocess.run(
-            [PYTHON_EXE, str(script_path), *args],
+            [PYTHON_EXE, "-u", str(script_path), *args],
             cwd=ROOT_DIR,
             capture_output=True,
             text=True,
@@ -367,7 +371,7 @@ def run_stage(
 
     except KeyboardInterrupt:
         print()
-        print_warning("Model Pipeline cancelled")
+        print_warning("Model pipeline cancelled")
 
         stage_summary["exit_code"] = 130
         stage_summary["status"] = "cancelled"
@@ -441,10 +445,15 @@ def main() -> int:
         "artefacts": {},
     }
 
+    print_section("Pre-flight")
+    print_info(f"Validated dataset: {relative_path(VALIDATED_DATASET_PATH)}")
+    print_info(f"Models directory: {relative_path(MODELS_DIR)}")
+    print_info(f"Summary output: {relative_path(SUMMARY_PATH)}")
+    print_info(f"Charts directory: {relative_path(CHARTS_DIR)}")
+
     inputs_valid, error_message = validate_required_inputs()
 
     if not inputs_valid:
-        print_section("Pre-flight")
         print_error(str(error_message))
 
         summary["status"] = "failed"
@@ -453,6 +462,8 @@ def main() -> int:
         save_model_pipeline_summary(summary)
 
         return 1
+
+    print_success("Validated dataset ready")
 
     for stage_key, label, script_path, args in STAGES:
         stage_summary = run_stage(
@@ -472,7 +483,7 @@ def main() -> int:
             save_model_pipeline_summary(summary)
 
             print()
-            print_error("Model Pipeline stopped")
+            print_error("Model pipeline stopped")
 
             return int(stage_summary["exit_code"])
 
@@ -483,7 +494,7 @@ def main() -> int:
     save_model_pipeline_summary(summary)
 
     print()
-    print_success("Model Pipeline completed")
+    print_success("Model pipeline completed")
 
     return 0
 

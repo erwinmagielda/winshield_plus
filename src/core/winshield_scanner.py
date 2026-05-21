@@ -1,9 +1,9 @@
 """
 WinShield+ scanner.
 
-Coordinates PowerShell collectors, correlates installed Windows updates
-with MSRC CVRF data, resolves supersedence, and exports a runtime scan
-for downstream prioritisation.
+Coordinates PowerShell collectors, correlates installed Windows updates with
+MSRC CVRF data, resolves supersedence, and exports a runtime scan for downstream
+risk prioritisation.
 """
 
 from __future__ import annotations
@@ -68,7 +68,7 @@ def relative_path(path: Path) -> str:
     """Return a repository-relative path for clean console output."""
 
     try:
-        return str(path.relative_to(ROOT_DIR))
+        return path.relative_to(ROOT_DIR).as_posix()
     except ValueError:
         return str(path)
 
@@ -79,11 +79,17 @@ def is_preserved_placeholder(path: Path) -> bool:
     return path.name == ".gitkeep"
 
 
+def normalise_kb_id(value: Any) -> str:
+    """Return a normalised KB identifier."""
+
+    return str(value).strip().upper()
+
+
 # ------------------------------------------------------------
 # RUNTIME CLEANUP
 # ------------------------------------------------------------
 
-def clear_runtime_directory() -> None:
+def clear_runtime_directory() -> int:
     """
     Clear existing runtime artefacts before starting a new scan.
 
@@ -93,6 +99,8 @@ def clear_runtime_directory() -> None:
     ensure_directory(RUNTIME_DIR)
 
     removed_count = 0
+
+    print_step("Clearing runtime artefacts")
 
     for item in RUNTIME_DIR.iterdir():
 
@@ -107,9 +115,10 @@ def clear_runtime_directory() -> None:
         item.unlink()
         removed_count += 1
 
-    print_step("Clearing runtime artefacts")
     print_success(f"Runtime directory ready: {relative_path(RUNTIME_DIR)}")
     print_info(f"Runtime artefacts removed: {removed_count}")
+
+    return removed_count
 
 
 # ------------------------------------------------------------
@@ -152,13 +161,19 @@ def run_powershell_script(
         raise RuntimeError(f"{script_name} execution failed")
 
     stdout = result.stdout.strip()
+
     if not stdout:
         raise RuntimeError(f"{script_name} returned no output")
 
     try:
-        return json.loads(stdout)
+        data = json.loads(stdout)
     except json.JSONDecodeError as exc:
         raise RuntimeError(f"{script_name} returned invalid JSON") from exc
+
+    if not isinstance(data, dict):
+        raise RuntimeError(f"{script_name} returned unexpected JSON structure")
+
+    return data
 
 
 # ------------------------------------------------------------
@@ -186,6 +201,7 @@ def build_month_ids_from_lcu(
     )
 
     start_date = datetime.strptime(start_id, "%Y-%b").replace(day=1, tzinfo=UTC)
+
     if start_date > end_date:
         start_date = end_date
 
@@ -205,6 +221,7 @@ def build_month_ids_from_lcu(
             break
 
         month += 1
+
         if month == 13:
             month = 1
             year += 1
@@ -215,7 +232,10 @@ def build_month_ids_from_lcu(
 def chunk_list(items: list[str], size: int) -> list[list[str]]:
     """Split a list into fixed-size chunks."""
 
-    return [items[index:index + size] for index in range(0, len(items), size)]
+    return [
+        items[index:index + size]
+        for index in range(0, len(items), size)
+    ]
 
 
 # ------------------------------------------------------------
@@ -229,7 +249,8 @@ def merge_kb_entries(
     """Merge MSRC adapter KB entries into an indexed KB map."""
 
     for entry in incoming:
-        kb_id = entry.get("KB")
+        kb_id = normalise_kb_id(entry.get("KB"))
+
         if not kb_id:
             continue
 
@@ -249,6 +270,23 @@ def merge_kb_entries(
                     target[field].append(value)
 
 
+def finalise_kb_entries(kb_entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Sort and normalise merged KB entries before analysis."""
+
+    for entry in kb_entries:
+        entry["KB"] = normalise_kb_id(entry.get("KB"))
+        entry["Months"] = sorted(set(entry.get("Months") or []))
+        entry["Cves"] = sorted(set(entry.get("Cves") or []))
+        entry["Supersedes"] = sorted(
+            normalise_kb_id(kb)
+            for kb in set(entry.get("Supersedes") or [])
+            if normalise_kb_id(kb)
+        )
+        entry["UpdateType"] = "Superseding" if entry["Supersedes"] else "Standalone"
+
+    return sorted(kb_entries, key=lambda item: item["KB"])
+
+
 # ------------------------------------------------------------
 # SUPERSEDENCE RESOLUTION
 # ------------------------------------------------------------
@@ -262,12 +300,13 @@ def compute_supersedence(
     supersedes_map: dict[str, set[str]] = {}
 
     for entry in kb_entries:
-        kb_id = entry.get("KB")
+        kb_id = normalise_kb_id(entry.get("KB"))
+
         if not kb_id:
             continue
 
         for superseded_kb in entry.get("Supersedes") or []:
-            supersedes_map.setdefault(kb_id, set()).add(superseded_kb)
+            supersedes_map.setdefault(kb_id, set()).add(normalise_kb_id(superseded_kb))
 
     logical_present_kbs = set(installed_kbs)
     superseded_by: dict[str, set[str]] = {}
@@ -318,7 +357,12 @@ def print_kb_table(
     col_status_width = 40
     col_months_width = 20
 
-    print_section("KB Correlation")
+    print_section("KB correlation")
+    print_info(f"Installed KBs included: {len(installed_kbs)}")
+    print_info(f"MSRC KB entries included: {len(kb_index)}")
+    print_info(f"Logical KBs after supersedence: {len(logical_present_kbs)}")
+    print()
+
     print(
         f"{'KB':<{col_kb_width}} "
         f"{'Type':<{col_type_width}} "
@@ -358,6 +402,7 @@ def print_kb_table(
 
         if not months:
             months = [""]
+
         if not cves:
             cves = [""]
 
@@ -393,8 +438,13 @@ def print_missing_kbs(
         print_success("No missing KBs detected")
         return
 
+    kb_index = {
+        entry.get("KB"): entry
+        for entry in kb_entries
+    }
+
     for kb_id in missing_kbs:
-        entry = next((item for item in kb_entries if item.get("KB") == kb_id), {})
+        entry = kb_index.get(kb_id, {})
         months = ", ".join(entry.get("Months") or [])
         cve_count = len(entry.get("Cves") or [])
 
@@ -427,7 +477,7 @@ def main() -> int:
     """Run the WinShield+ system scan workflow."""
 
     try:
-        print_section("Runtime Preparation")
+        print_section("Runtime preparation")
         clear_runtime_directory()
 
         print_section("Baseline")
@@ -445,19 +495,26 @@ def main() -> int:
             f"({baseline.get('Build')})"
         )
         print_success(f"Product: {product_name_hint}")
+        print_info(f"LCU MonthId: {baseline.get('LcuMonthId')}")
+        print_info(f"Latest MSRC MonthId: {baseline.get('MsrcLatestMonthId')}")
 
         print_section("Inventory")
         print_step("Collecting installed KB inventory")
         inventory = run_powershell_script(INVENTORY_SCRIPT)
-        installed_kbs = set(inventory.get("AllInstalledKbs") or [])
+        installed_kbs = {
+            normalise_kb_id(kb)
+            for kb in inventory.get("AllInstalledKbs") or []
+            if normalise_kb_id(kb)
+        }
 
         print_success(f"Installed KBs: {len(installed_kbs)}")
 
-        print_section("MSRC Correlation")
+        print_section("MSRC correlation")
         print_step("Building MonthId range")
         month_ids = build_month_ids_from_lcu(baseline)
 
         print_success(f"Months requested: {', '.join(month_ids)}")
+        print_info(f"Month chunks: {len(chunk_list(month_ids, 3))}")
 
         merged_entries: dict[str, dict[str, Any]] = {}
         months_with_entries: list[str] = []
@@ -465,6 +522,8 @@ def main() -> int:
         print_step("Querying MSRC CVRF data")
 
         for month_chunk in chunk_list(month_ids, 3):
+            print_info(f"Query chunk: {', '.join(month_chunk)}")
+
             msrc_data = run_powershell_script(
                 ADAPTER_SCRIPT,
                 extra_args=[
@@ -476,6 +535,8 @@ def main() -> int:
             )
 
             entries = msrc_data.get("KbEntries") or []
+            print_info(f"KB entries returned: {len(entries)}")
+
             if entries:
                 months_with_entries.extend(month_chunk)
                 merge_kb_entries(merged_entries, entries)
@@ -484,27 +545,27 @@ def main() -> int:
             print_warning("No KB data returned from MSRC")
             return 0
 
-        kb_entries = list(merged_entries.values())
-
-        for entry in kb_entries:
-            entry["Months"] = sorted(set(entry.get("Months") or []))
-            entry["Cves"] = sorted(set(entry.get("Cves") or []))
-            entry["Supersedes"] = sorted(set(entry.get("Supersedes") or []))
-            entry["UpdateType"] = "Superseding" if entry["Supersedes"] else "Standalone"
+        kb_entries = finalise_kb_entries(list(merged_entries.values()))
 
         print_success(f"KB entries mapped: {len(kb_entries)}")
         print_success(f"Months with entries: {len(set(months_with_entries))}")
 
+        print_section("Supersedence")
+        print_step("Resolving logical KB presence")
         logical_present_kbs, superseded_by = compute_supersedence(
             kb_entries=kb_entries,
             installed_kbs=installed_kbs,
         )
+        print_success(f"Installed KBs: {len(installed_kbs)}")
+        print_success(f"Logical present KBs: {len(logical_present_kbs)}")
+        print_success(f"Superseded KB mappings: {len(superseded_by)}")
 
         expected_kbs = {entry["KB"] for entry in kb_entries}
         missing_kbs = sorted(expected_kbs - logical_present_kbs)
 
         print_section("Summary")
         print_success(f"Expected KBs: {len(expected_kbs)}")
+        print_success(f"Installed or superseded KBs: {len(expected_kbs - set(missing_kbs))}")
         print_success(f"Missing KBs: {len(missing_kbs)}")
 
         print_kb_table(
@@ -524,7 +585,7 @@ def main() -> int:
             "InstalledKbs": sorted(installed_kbs),
             "MonthsRequested": month_ids,
             "MonthsWithEntries": sorted(set(months_with_entries)),
-            "KbEntries": sorted(kb_entries, key=lambda item: item["KB"]),
+            "KbEntries": kb_entries,
             "MissingKbs": missing_kbs,
         }
 

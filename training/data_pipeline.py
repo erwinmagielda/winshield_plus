@@ -2,9 +2,10 @@
 WinShield+ data pipeline.
 
 Builds training and runtime datasets from WinShield+ scan JSON files.
+
 The pipeline flattens KB/CVE/month relationships, enriches CVEs with MSRC
-metadata, optionally labels training data, validates model-ready rows, and
-exports a pipeline summary to results/.
+metadata, optionally applies shared policy labels for training, validates
+model-ready rows, and exports a structured pipeline summary.
 """
 
 from __future__ import annotations
@@ -31,7 +32,7 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 
-from utils.winshield_banner import (
+from utils.winshield_banner import (  # noqa: E402
     print_error,
     print_info,
     print_section,
@@ -39,15 +40,17 @@ from utils.winshield_banner import (
     print_success,
     print_warning,
 )
-from utils.winshield_paths import (
+from utils.winshield_paths import (  # noqa: E402
     ensure_directory,
     get_dataset_dir,
     get_powershell_dir,
-    get_results_dir,
     get_runtime_dir,
+    get_runtime_pipeline_summary_path,
     get_scan_source_dir,
+    get_summaries_dir,
+    get_training_pipeline_summary_path,
 )
-from utils.winshield_risk import apply_risk_policy
+from utils.winshield_risk import apply_risk_policy  # noqa: E402
 
 
 # ------------------------------------------------------------
@@ -57,7 +60,8 @@ from utils.winshield_risk import apply_risk_policy
 SCANS_DIR = get_scan_source_dir()
 RUNTIME_DIR = get_runtime_dir()
 DATASET_DIR = get_dataset_dir()
-RESULTS_DIR = get_results_dir()
+SUMMARIES_DIR = get_summaries_dir()
+
 POWERSHELL_SCRIPT = get_powershell_dir() / "winshield_metadata.ps1"
 
 
@@ -102,26 +106,35 @@ def utc_timestamp() -> str:
 
 
 def print_pipeline_header(mode: str) -> None:
-    """Print the data pipeline header without extra trailing spacing."""
+    """Print the data pipeline header."""
 
     print()
-    print(f"Data Pipeline ({mode})")
+    print(f"Data pipeline ({mode})")
     print("=" * 60)
+
+
+def get_summary_path(mode: str) -> Path:
+    """Return the pipeline summary path for the selected mode."""
+
+    if mode == "training":
+        return get_training_pipeline_summary_path()
+
+    return get_runtime_pipeline_summary_path()
 
 
 def prepare_pipeline_directories() -> None:
     """Ensure required pipeline output directories exist."""
 
-    for directory in [RUNTIME_DIR, DATASET_DIR, RESULTS_DIR]:
+    for directory in [RUNTIME_DIR, DATASET_DIR, SUMMARIES_DIR]:
         ensure_directory(directory)
 
 
 def save_pipeline_summary(mode: str, summary: dict[str, Any]) -> Path:
-    """Save pipeline summary JSON to the results directory."""
+    """Save pipeline summary JSON to the summaries directory."""
 
-    ensure_directory(RESULTS_DIR)
+    output_path = get_summary_path(mode)
 
-    output_path = RESULTS_DIR / f"{mode}_pipeline_summary.json"
+    ensure_directory(output_path.parent)
 
     with output_path.open("w", encoding="utf-8") as file:
         json.dump(summary, file, indent=2)
@@ -161,32 +174,49 @@ def find_training_scans() -> list[Path]:
     return scan_files
 
 
+def load_scan(path: Path) -> dict[str, Any]:
+    """Load a WinShield+ scan JSON file."""
+
+    with path.open("r", encoding="utf-8") as file:
+        data = json.load(file)
+
+    if not isinstance(data, dict):
+        raise RuntimeError(f"Scan has unexpected structure: {relative_path(path)}")
+
+    return data
+
+
 # ------------------------------------------------------------
 # STEP 1: FLATTEN
 # ------------------------------------------------------------
+
+def get_flatten_sources(mode: str) -> tuple[list[Path], Path, Path]:
+    """Return scan files, output path, and source directory for flattening."""
+
+    if mode == "training":
+        return find_training_scans(), DATASET_DIR / "flattened_dataset.csv", SCANS_DIR
+
+    return [find_latest_runtime_scan()], RUNTIME_DIR / "flattened_runtime.csv", RUNTIME_DIR
+
 
 def flatten_scans(mode: str) -> tuple[Path, dict[str, Any]]:
     """Flatten scan JSON files into KB/CVE/month rows."""
 
     print_section("Flatten")
 
-    if mode == "training":
-        scan_files = find_training_scans()
-        output_path = DATASET_DIR / "flattened_dataset.csv"
-        source_directory = SCANS_DIR
-    else:
-        scan_files = [find_latest_runtime_scan()]
-        output_path = RUNTIME_DIR / "flattened_runtime.csv"
-        source_directory = RUNTIME_DIR
+    scan_files, output_path, source_directory = get_flatten_sources(mode)
 
     print_step(f"Source directory: {relative_path(source_directory)}")
-    print_step(f"Scan files: {len(scan_files)}")
-
-    rows: list[dict[str, Any]] = []
+    print_info(f"Scan files discovered: {len(scan_files)}")
 
     for scan_path in scan_files:
-        with scan_path.open("r", encoding="utf-8") as file:
-            scan = json.load(file)
+        print(f"    - {relative_path(scan_path)}")
+
+    rows: list[dict[str, Any]] = []
+    skipped_kbs = 0
+
+    for scan_path in scan_files:
+        scan = load_scan(scan_path)
 
         missing_kbs = {
             str(kb).strip().upper()
@@ -194,28 +224,37 @@ def flatten_scans(mode: str) -> tuple[Path, dict[str, Any]]:
             if str(kb).strip()
         }
 
+        print_info(f"Processing scan: {relative_path(scan_path)}")
+        print_info(f"KB entries available: {len(scan.get('KbEntries', []) or [])}")
+
+        if mode == "runtime":
+            print_info(f"Missing KB filter: {len(missing_kbs)} KBs")
+
         for patch in scan.get("KbEntries", []):
             kb_id = str(patch.get("KB") or "").strip().upper()
 
             if mode == "runtime" and kb_id not in missing_kbs:
+                skipped_kbs += 1
                 continue
 
             months = patch.get("Months", [])
             cves = patch.get("Cves", [])
 
             if not kb_id or not months or not cves:
+                skipped_kbs += 1
                 continue
 
             for cve_id in cves:
                 for month_id in months:
                     rows.append(
                         {
-                            "kb_id": str(kb_id).strip().upper(),
+                            "kb_id": kb_id,
                             "cve_id": str(cve_id).strip().upper(),
                             "month": str(month_id).strip(),
                         }
                     )
 
+    raw_row_count = len(rows)
     flattened_data = pd.DataFrame(rows)
 
     if not flattened_data.empty:
@@ -223,22 +262,32 @@ def flatten_scans(mode: str) -> tuple[Path, dict[str, Any]]:
             subset=["kb_id", "cve_id", "month"]
         )
 
+    deduplicated_count = len(flattened_data)
+    duplicate_rows_removed = raw_row_count - deduplicated_count
+
     flattened_data.to_csv(output_path, index=False)
 
     summary = {
         "scan_files": len(scan_files),
         "source_directory": relative_path(source_directory),
         "source_files": [relative_path(path) for path in scan_files],
-        "rows_created": int(len(flattened_data)),
+        "raw_rows_created": int(raw_row_count),
+        "duplicate_rows_removed": int(duplicate_rows_removed),
+        "rows_created": int(deduplicated_count),
+        "skipped_kb_entries": int(skipped_kbs),
         "unique_kbs": int(flattened_data["kb_id"].nunique()) if not flattened_data.empty else 0,
         "unique_cves": int(flattened_data["cve_id"].nunique()) if not flattened_data.empty else 0,
         "unique_months": int(flattened_data["month"].nunique()) if not flattened_data.empty else 0,
         "output": relative_path(output_path),
     }
 
+    print_success(f"Raw rows created: {summary['raw_rows_created']}")
+    print_success(f"Duplicate rows removed: {summary['duplicate_rows_removed']}")
     print_success(f"Rows created: {summary['rows_created']}")
+    print_info(f"Skipped KB entries: {summary['skipped_kb_entries']}")
     print_success(f"Unique KBs: {summary['unique_kbs']}")
     print_success(f"Unique CVEs: {summary['unique_cves']}")
+    print_success(f"Unique months: {summary['unique_months']}")
     print_success(f"Output: {relative_path(output_path)}")
 
     return output_path, summary
@@ -373,6 +422,9 @@ def enrich_data(input_csv: Path) -> tuple[Path, dict[str, Any]]:
     output_path = Path(str(input_csv).replace("flattened", "enriched"))
     flattened_data = pd.read_csv(input_csv)
 
+    if flattened_data.empty:
+        raise RuntimeError("Flattened dataset is empty")
+
     month_ids = sorted(
         str(month).strip()
         for month in flattened_data["month"].dropna().unique()
@@ -380,6 +432,7 @@ def enrich_data(input_csv: Path) -> tuple[Path, dict[str, Any]]:
     )
 
     print_step(f"Collecting MSRC metadata: {len(month_ids)} MonthIds")
+    print_info(f"PowerShell metadata script: {relative_path(POWERSHELL_SCRIPT)}")
 
     metadata = fetch_msrc_metadata(month_ids)
 
@@ -426,12 +479,19 @@ def enrich_data(input_csv: Path) -> tuple[Path, dict[str, Any]]:
 
     enriched_data = pd.DataFrame(enriched_rows)
 
+    raw_enriched_count = len(enriched_data)
+
     if not enriched_data.empty:
         enriched_data = enriched_data.drop_duplicates(
             subset=["kb_id", "cve_id", "month"]
         )
 
+    duplicate_rows_removed = raw_enriched_count - len(enriched_data)
+
     enriched_data.to_csv(output_path, index=False)
+
+    cvss_available = int(enriched_data["cvss_score"].notna().sum())
+    vector_available = int(enriched_data["attack_vector"].notna().sum())
 
     summary = {
         "month_ids_requested": month_ids,
@@ -440,9 +500,17 @@ def enrich_data(input_csv: Path) -> tuple[Path, dict[str, Any]]:
         "matched_cves": int(len(matched_cves)),
         "missing_cves": int(len(missing_cves)),
         "first_missing_cves": missing_cves[:10],
+        "rows_enriched": int(len(enriched_data)),
+        "duplicate_rows_removed": int(duplicate_rows_removed),
+        "rows_with_cvss_score": cvss_available,
+        "rows_with_attack_vector": vector_available,
         "output": relative_path(output_path),
     }
 
+    print_success(f"Rows enriched: {summary['rows_enriched']}")
+    print_success(f"Duplicate rows removed: {summary['duplicate_rows_removed']}")
+    print_success(f"Rows with CVSS score: {summary['rows_with_cvss_score']}")
+    print_success(f"Rows with attack vector: {summary['rows_with_attack_vector']}")
     print_success(f"Output: {relative_path(output_path)}")
 
     return output_path, summary
@@ -472,18 +540,30 @@ def label_training_data(input_csv: Path) -> tuple[Path, dict[str, Any]]:
         for label, count in labelled_data["priority_label"].value_counts().items()
     }
 
+    policy_risk_min = float(labelled_data["policy_risk"].min()) if not labelled_data.empty else 0.0
+    policy_risk_max = float(labelled_data["policy_risk"].max()) if not labelled_data.empty else 0.0
+    policy_risk_mean = float(labelled_data["policy_risk"].mean()) if not labelled_data.empty else 0.0
+
     summary = {
         "rows_labelled": int(len(labelled_data)),
         "label_distribution": label_distribution,
+        "policy_risk_min": round(policy_risk_min, 2),
+        "policy_risk_max": round(policy_risk_max, 2),
+        "policy_risk_mean": round(policy_risk_mean, 2),
         "policy_source": "utils.winshield_risk.apply_risk_policy",
         "output": relative_path(output_path),
     }
 
-    print_success(f"Rows labelled: {summary['rows_labelled']}")
+    print_step("Applying shared policy risk labels")
     print_info("Policy source: utils.winshield_risk.apply_risk_policy")
+    print_success(f"Rows labelled: {summary['rows_labelled']}")
+    print_success(f"Policy risk min: {summary['policy_risk_min']:.2f}")
+    print_success(f"Policy risk max: {summary['policy_risk_max']:.2f}")
+    print_success(f"Policy risk mean: {summary['policy_risk_mean']:.2f}")
 
+    print_info("Priority distribution:")
     for label, count in label_distribution.items():
-        print_info(f"{label}: {count}")
+        print(f"    - {label}: {count}")
 
     print_success(f"Output: {relative_path(output_path)}")
 
@@ -521,6 +601,7 @@ def validate_data(input_csv: Path, mode: str) -> tuple[Path, dict[str, Any]]:
     pipeline_data["cve_id"] = pipeline_data["cve_id"].astype(str).str.strip().str.upper()
     pipeline_data["kb_id"] = pipeline_data["kb_id"].astype(str).str.strip().str.upper()
 
+    non_cve_count = int((~pipeline_data["cve_id"].str.startswith("CVE-")).sum())
     pipeline_data = pipeline_data[pipeline_data["cve_id"].str.startswith("CVE-")]
 
     required_columns = [
@@ -533,13 +614,18 @@ def validate_data(input_csv: Path, mode: str) -> tuple[Path, dict[str, Any]]:
         required_columns=required_columns,
     )
 
+    missing_required_count = int(pipeline_data[required_columns].isna().any(axis=1).sum())
+
     pipeline_data = pipeline_data.dropna(subset=required_columns)
+
+    before_deduplication = len(pipeline_data)
 
     if not pipeline_data.empty:
         pipeline_data = pipeline_data.drop_duplicates(
             subset=["kb_id", "cve_id", "month"]
         )
 
+    duplicate_rows_removed = before_deduplication - len(pipeline_data)
     after_count = len(pipeline_data)
     dropped_count = before_count - after_count
 
@@ -552,15 +638,22 @@ def validate_data(input_csv: Path, mode: str) -> tuple[Path, dict[str, Any]]:
         "rows_before": int(before_count),
         "rows_after": int(after_count),
         "rows_dropped": int(dropped_count),
+        "non_cve_rows_removed": int(non_cve_count),
+        "rows_missing_required_fields": int(missing_required_count),
+        "duplicate_rows_removed": int(duplicate_rows_removed),
         "required_columns": required_columns,
         "drop_reason": "Rows missing cvss_score or attack_vector are removed.",
         "deduplication": "Rows are deduplicated by kb_id, cve_id, and month.",
         "output": relative_path(output_path),
     }
 
-    print_success(f"Rows before: {before_count}")
-    print_success(f"Rows after: {after_count}")
-    print_info(f"Rows dropped: {dropped_count}")
+    print_success(f"Rows before: {summary['rows_before']}")
+    print_success(f"Rows after: {summary['rows_after']}")
+    print_info(f"Rows dropped: {summary['rows_dropped']}")
+    print_info(f"Non-CVE rows removed: {summary['non_cve_rows_removed']}")
+    print_info(f"Rows missing required fields: {summary['rows_missing_required_fields']}")
+    print_info(f"Duplicate rows removed: {summary['duplicate_rows_removed']}")
+    print_info("Required fields: cvss_score, attack_vector")
     print_info("Deduplication: kb_id, cve_id, month")
     print_success(f"Output: {relative_path(output_path)}")
 
@@ -578,7 +671,6 @@ def run_pipeline(mode: str) -> Path:
     """Run the selected WinShield+ data pipeline mode."""
 
     prepare_pipeline_directories()
-
     print_pipeline_header(mode)
 
     summary: dict[str, Any] = {
@@ -599,6 +691,8 @@ def run_pipeline(mode: str) -> Path:
         summary["label"] = label_summary
     else:
         summary["label"] = None
+        print_section("Label")
+        print_info("Skipped in runtime mode")
 
     output_path, validate_summary = validate_data(output_path, mode)
     summary["validate"] = validate_summary
@@ -608,10 +702,11 @@ def run_pipeline(mode: str) -> Path:
 
     print_section("Summary")
     print_success(f"Final output: {relative_path(output_path)}")
+
     save_pipeline_summary(mode, summary)
 
     print()
-    print_success(f"Data Pipeline ({mode}) completed")
+    print_success(f"Data pipeline ({mode}) completed")
 
     return output_path
 
@@ -627,11 +722,11 @@ def main() -> int:
 
     except KeyboardInterrupt:
         print()
-        print_warning("Data Pipeline cancelled")
+        print_warning("Data pipeline cancelled")
         return 130
 
     except Exception as exc:
-        print_error(f"Data Pipeline failed: {exc}")
+        print_error(f"Data pipeline failed: {exc}")
         return 1
 
 

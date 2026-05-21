@@ -5,7 +5,7 @@ Loads validated runtime vulnerability data, applies transparent policy scoring,
 then applies trained regression, classification, and clustering models as
 supporting signals.
 
-Exports ranked KB prioritisation results for review or downstream automation.
+Exports ranked KB prioritisation results and generates a Markdown report.
 """
 
 from __future__ import annotations
@@ -41,9 +41,8 @@ from utils.winshield_banner import (
 )
 from utils.winshield_paths import (
     ensure_directory,
-    get_models_dir,
-    get_results_dir,
-    get_runtime_dir,
+    get_ranking_results_path,
+    get_validated_runtime_path,
 )
 from utils.winshield_risk import apply_risk_policy
 
@@ -52,11 +51,10 @@ from utils.winshield_risk import apply_risk_policy
 # PATHS
 # ------------------------------------------------------------
 
-RUNTIME_DIR = get_runtime_dir()
-MODELS_DIR = get_models_dir()
-RESULTS_DIR = get_results_dir()
+RUNTIME_DATA_PATH = get_validated_runtime_path()
+RESULTS_PATH = get_ranking_results_path()
 
-RUNTIME_DATA_PATH = RUNTIME_DIR / "validated_runtime.csv"
+MODELS_DIR = ROOT_DIR / "models"
 
 REGRESSION_MODEL_PATH = MODELS_DIR / "regression_model.joblib"
 REGRESSION_PREPROCESSOR_PATH = MODELS_DIR / "regression_preprocessor.joblib"
@@ -66,8 +64,6 @@ CLASSIFICATION_PREPROCESSOR_PATH = MODELS_DIR / "classification_preprocessor.job
 
 CLUSTERING_MODEL_PATH = MODELS_DIR / "clustering_model.joblib"
 CLUSTERING_PREPROCESSOR_PATH = MODELS_DIR / "clustering_preprocessor.joblib"
-
-RESULTS_PATH = RESULTS_DIR / "ranking_results.json"
 
 
 # ------------------------------------------------------------
@@ -137,10 +133,10 @@ def load_runtime_data() -> pd.DataFrame:
 # MODEL LOADING
 # ------------------------------------------------------------
 
-def validate_model_artefacts() -> None:
-    """Check that all required trained model artefacts exist."""
+def get_required_model_artefacts() -> list[Path]:
+    """Return required model artefact paths."""
 
-    required_artefacts = [
+    return [
         REGRESSION_MODEL_PATH,
         REGRESSION_PREPROCESSOR_PATH,
         CLASSIFICATION_MODEL_PATH,
@@ -149,14 +145,31 @@ def validate_model_artefacts() -> None:
         CLUSTERING_PREPROCESSOR_PATH,
     ]
 
+
+def validate_model_artefacts() -> None:
+    """Check that all required trained model artefacts exist."""
+
     missing_artefacts = [
-        artefact for artefact in required_artefacts
+        artefact for artefact in get_required_model_artefacts()
         if not artefact.is_file()
     ]
 
     if missing_artefacts:
         missing = ", ".join(relative_path(path) for path in missing_artefacts)
         raise RuntimeError(f"Model artefacts missing: {missing}")
+
+
+def load_models() -> dict[str, Any]:
+    """Load trained models and preprocessors."""
+
+    return {
+        "regression_model": joblib.load(REGRESSION_MODEL_PATH),
+        "regression_preprocessor": joblib.load(REGRESSION_PREPROCESSOR_PATH),
+        "classification_model": joblib.load(CLASSIFICATION_MODEL_PATH),
+        "classification_preprocessor": joblib.load(CLASSIFICATION_PREPROCESSOR_PATH),
+        "clustering_model": joblib.load(CLUSTERING_MODEL_PATH),
+        "clustering_preprocessor": joblib.load(CLUSTERING_PREPROCESSOR_PATH),
+    }
 
 
 # ------------------------------------------------------------
@@ -196,23 +209,15 @@ def predict_priorities(runtime_data: pd.DataFrame) -> pd.DataFrame:
 
     predictions = apply_risk_policy(runtime_data)
     features = prepare_features(predictions)
+    models = load_models()
 
-    regression_model = joblib.load(REGRESSION_MODEL_PATH)
-    regression_preprocessor = joblib.load(REGRESSION_PREPROCESSOR_PATH)
+    regression_features = models["regression_preprocessor"].transform(features)
+    classification_features = models["classification_preprocessor"].transform(features)
+    clustering_features = models["clustering_preprocessor"].transform(features)
 
-    classification_model = joblib.load(CLASSIFICATION_MODEL_PATH)
-    classification_preprocessor = joblib.load(CLASSIFICATION_PREPROCESSOR_PATH)
-
-    clustering_model = joblib.load(CLUSTERING_MODEL_PATH)
-    clustering_preprocessor = joblib.load(CLUSTERING_PREPROCESSOR_PATH)
-
-    regression_features = regression_preprocessor.transform(features)
-    classification_features = classification_preprocessor.transform(features)
-    clustering_features = clustering_preprocessor.transform(features)
-
-    predictions["ml_risk"] = regression_model.predict(regression_features)
-    predictions["ml_priority"] = classification_model.predict(classification_features)
-    predictions["cluster"] = clustering_model.predict(clustering_features)
+    predictions["ml_risk"] = models["regression_model"].predict(regression_features)
+    predictions["ml_priority"] = models["classification_model"].predict(classification_features)
+    predictions["cluster"] = models["clustering_model"].predict(clustering_features)
 
     return predictions
 
@@ -239,7 +244,6 @@ def build_results(predictions: pd.DataFrame) -> list[dict[str, Any]]:
 
     for kb_id, kb_rows in predictions.groupby("kb_id"):
         cve_rows = kb_rows.sort_values("policy_risk", ascending=False)
-
         top_row = cve_rows.iloc[0]
 
         entry = {
@@ -279,19 +283,33 @@ def build_results(predictions: pd.DataFrame) -> list[dict[str, Any]]:
 # ------------------------------------------------------------
 
 def print_runtime_summary(runtime_data: pd.DataFrame) -> None:
-    """Print concise runtime dataset summary."""
+    """Print runtime dataset summary."""
 
-    print_section("Runtime Data")
+    print_section("Runtime data")
     print_success(f"Input: {relative_path(RUNTIME_DATA_PATH)}")
     print_success(f"Runtime rows: {len(runtime_data)}")
     print_success(f"Unique KBs: {runtime_data['kb_id'].nunique()}")
     print_success(f"Unique CVEs: {runtime_data['cve_id'].nunique()}")
 
 
-def print_policy_summary(predictions: pd.DataFrame) -> None:
-    """Print concise risk policy summary."""
+def print_feature_summary(features: pd.DataFrame) -> None:
+    """Print model feature preparation summary."""
 
-    print_section("Risk Policy")
+    print_section("Feature preparation")
+    print_success(f"Model feature rows: {len(features)}")
+    print_success(f"Model feature columns: {len(features.columns)}")
+    print_info("Policy output columns excluded from model features")
+
+    if not features.empty:
+        print_info("Feature columns:")
+        for column in features.columns:
+            print(f"    - {column}")
+
+
+def print_policy_summary(predictions: pd.DataFrame) -> None:
+    """Print risk policy summary."""
+
+    print_section("Risk policy")
     print_info("Primary ranking: policy risk")
     print_info("Supporting signals: ML risk, ML priority, cluster")
     print_success(f"Policy risk min: {predictions['policy_risk'].min():.2f}")
@@ -299,10 +317,27 @@ def print_policy_summary(predictions: pd.DataFrame) -> None:
     print_success(f"Policy risk mean: {predictions['policy_risk'].mean():.2f}")
 
 
-def print_patch_recommendation(predictions: pd.DataFrame) -> None:
+def print_ml_summary(predictions: pd.DataFrame) -> None:
+    """Print supporting ML signal summary."""
+
+    print_section("ML signals")
+    print_success(f"ML risk min: {predictions['ml_risk'].min():.2f}")
+    print_success(f"ML risk max: {predictions['ml_risk'].max():.2f}")
+    print_success(f"ML risk mean: {predictions['ml_risk'].mean():.2f}")
+
+    print_info("ML priority distribution:")
+    for label, count in predictions["ml_priority"].value_counts().items():
+        print(f"    - {label}: {count}")
+
+    print_info("Cluster distribution:")
+    for cluster_id, count in predictions["cluster"].value_counts().sort_index().items():
+        print(f"    - Cluster {cluster_id}: {count}")
+
+
+def print_ranked_remediation(predictions: pd.DataFrame) -> None:
     """Print aligned KB-level remediation order based on policy risk."""
 
-    print_section("Ranked Remediation")
+    print_section("Ranked remediation")
 
     results = build_results(predictions)
 
@@ -314,11 +349,11 @@ def print_patch_recommendation(predictions: pd.DataFrame) -> None:
         f"{'Rank':<6} | "
         f"{'KB':<12} | "
         f"{'Policy':>7} | "
-        f"{'ML Risk':>7} | "
+        f"{'ML risk':>7} | "
         f"{'Priority':<10} | "
         f"{'Cluster':>7} | "
         f"{'CVEs':>5} | "
-        f"{'Top Driver':<24}"
+        f"{'Top driver':<24}"
     )
 
     print(header)
@@ -337,10 +372,10 @@ def print_patch_recommendation(predictions: pd.DataFrame) -> None:
         )
 
 
-def print_kb_breakdown(predictions: pd.DataFrame) -> None:
+def print_cve_breakdown(predictions: pd.DataFrame) -> None:
     """Print aligned CVE-level details grouped by ranked KB."""
 
-    print_section("CVE Breakdown")
+    print_section("CVE breakdown")
 
     sorted_predictions = predictions.sort_values("policy_risk", ascending=False)
     kb_order = get_kb_order(sorted_predictions)
@@ -387,7 +422,7 @@ def print_kb_breakdown(predictions: pd.DataFrame) -> None:
         header = (
             f"    {'CVE':<{cve_width}} | "
             f"{'Policy':>{policy_width}} | "
-            f"{'ML Risk':>{ml_width}} | "
+            f"{'ML risk':>{ml_width}} | "
             f"{'Priority':<{priority_width}} | "
             f"{'Cluster':>{cluster_width}} | "
             f"{'Driver':<{driver_width}}"
@@ -411,17 +446,17 @@ def print_kb_breakdown(predictions: pd.DataFrame) -> None:
 # RESULT EXPORT
 # ------------------------------------------------------------
 
-def save_results(predictions: pd.DataFrame) -> None:
-    """Save KB ranking results to the results directory."""
+def save_results(predictions: pd.DataFrame) -> Path:
+    """Save KB ranking results to the ranking results path."""
 
-    ensure_directory(RESULTS_DIR)
+    ensure_directory(RESULTS_PATH.parent)
 
     output = build_results(predictions)
 
     with RESULTS_PATH.open("w", encoding="utf-8") as file:
         json.dump(output, file, indent=2)
 
-    print_success(f"Results saved: {relative_path(RESULTS_PATH)}")
+    return RESULTS_PATH
 
 
 # ------------------------------------------------------------
@@ -441,32 +476,45 @@ def main() -> int:
         print_runtime_summary(runtime_data)
 
         print_section("Inference")
-        print_step("Applying risk policy and trained models")
+        print_step("Applying risk policy")
+        policy_data = apply_risk_policy(runtime_data)
+        print_success("Policy scores generated")
+
+        features = prepare_features(policy_data)
+        print_feature_summary(features)
+
+        print_step("Loading trained models")
+        validate_model_artefacts()
+        print_success("Trained models ready")
+
+        print_step("Applying regression, classification, and clustering models")
         predictions = predict_priorities(runtime_data)
-        print_success("Policy scores and predictions generated")
+        print_success("ML supporting signals generated")
 
         print_policy_summary(predictions)
-        print_patch_recommendation(predictions)
-        print_kb_breakdown(predictions)
+        print_ml_summary(predictions)
+        print_ranked_remediation(predictions)
+        print_cve_breakdown(predictions)
 
         print_section("Export")
-        save_results(predictions)
+        results_path = save_results(predictions)
+        print_success(f"Results saved: {relative_path(results_path)}")
 
         report_path = generate_report()
         print_success(f"Report saved: {relative_path(report_path)}")
 
         print()
-        print_success("Risk Prioritisation completed")
+        print_success("Risk prioritisation completed")
 
         return 0
 
     except KeyboardInterrupt:
         print()
-        print_warning("Risk Prioritisation cancelled")
+        print_warning("Risk prioritisation cancelled")
         return 130
 
     except Exception as exc:
-        print_error(f"Risk Prioritisation failed: {exc}")
+        print_error(f"Risk prioritisation failed: {exc}")
         return 1
 
 
