@@ -266,30 +266,6 @@ def print_cleanup_plan() -> None:
     print()
 
 
-def print_removed_summary(removed_by_category: dict[str, int]) -> None:
-    """Print compact cleanup summary."""
-
-    removed_total = sum(removed_by_category.values())
-    active_categories = {
-        label: count
-        for label, count in removed_by_category.items()
-        if count > 0
-    }
-
-    print_success(f"Removed artefacts: {removed_total}")
-
-    if not active_categories:
-        print_info("No generated artefacts were present")
-        return
-
-    compact_counts = ", ".join(
-        f"{label}: {count}"
-        for label, count in active_categories.items()
-    )
-
-    print_info(f"Removed by group: {compact_counts}")
-
-
 def print_skipped_paths(title: str, paths: list[Path]) -> None:
     """Print skipped paths in a compact format."""
 
@@ -330,20 +306,20 @@ def main() -> int:
     print_step("Clearing generated artefacts")
 
     total_result = CleanupResult()
-    removed_by_category: dict[str, int] = {}
 
-    for label, directory in GENERATED_DIRS.items():
+    for directory in GENERATED_DIRS.values():
         result = clear_directory_contents(directory)
-        removed_by_category[label] = result.removed_count
         merge_results(total_result, result)
 
     pycache_result = clear_python_cache()
-    removed_by_category["pycache"] = pycache_result.removed_count
     merge_results(total_result, pycache_result)
 
     write_gitkeep_files()
 
-    print_removed_summary(removed_by_category)
+    print_success(f"Removed artefacts: {total_result.removed_count}")
+
+    if total_result.removed_count == 0:
+        print_info("No generated artefacts were present")
 
     print_skipped_paths("Locked artefacts skipped", total_result.skipped_locked)
     print_skipped_paths("Artefacts skipped due to errors", total_result.skipped_other)

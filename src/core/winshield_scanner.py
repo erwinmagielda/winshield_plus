@@ -504,7 +504,7 @@ def print_missing_kbs(
         print_warning(f"{kb_id} | Months: {months} | CVEs: {len(cves)}")
 
         if preview_cves:
-            print_info(f"Top preview: {', '.join(preview_cves)}")
+            print_info(f"CVE preview: {', '.join(preview_cves)}")
 
         if hidden_count > 0:
             print_info(f"Additional CVEs hidden: {hidden_count}")

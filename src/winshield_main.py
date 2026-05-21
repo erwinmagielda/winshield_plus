@@ -457,6 +457,8 @@ def read_choice() -> str:
         if choice:
             return choice
 
+        print_info("Enter a menu option from 1 to 7")
+
 
 # ------------------------------------------------------------
 # MENU HANDLERS
