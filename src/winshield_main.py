@@ -35,7 +35,6 @@ from utils.winshield_paths import (
     get_models_dir,
     get_prioritiser_script,
     get_project_root,
-    get_results_dir,
     get_runtime_dir,
     get_scanner_script,
     prepare_runtime_directories,
@@ -59,9 +58,8 @@ INSTALLER_SCRIPT = get_installer_script()
 
 RUNTIME_DIR = get_runtime_dir()
 MODELS_DIR = get_models_dir()
-RESULTS_DIR = get_results_dir()
 
-MODEL_SETUP_RUN_PATH = get_model_setup_summary_path()
+MODEL_SETUP_SUMMARY_PATH = get_model_setup_summary_path()
 
 PYTHON_EXE = sys.executable
 
@@ -189,8 +187,8 @@ def run_python_script_live(
     """
     Run a Python script and stream its output live to the console.
 
-    Child modules own their detailed operational printing. The main runner only
-    launches each stage, records status, and preserves the visible evidence chain.
+    Child modules own their operational printing. The main runner launches each
+    stage, records status, and leaves detailed output to the child workflow.
     """
 
     if args is None:
@@ -246,7 +244,7 @@ def run_single_stage(label: str, script_path: Path) -> int:
     """Run a single menu stage and return its exit code."""
 
     print_workflow_header(label)
-    print_step(f"Running {relative_path(script_path)}")
+    print_step(f"Starting {label}")
 
     return_code, _ = run_python_script_live(
         label=label,
@@ -270,13 +268,16 @@ def run_single_stage(label: str, script_path: Path) -> int:
 def save_model_setup_summary(summary: dict[str, Any]) -> None:
     """Save model setup execution details as structured JSON."""
 
-    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    MODEL_SETUP_SUMMARY_PATH.parent.mkdir(parents=True, exist_ok=True)
 
-    with MODEL_SETUP_RUN_PATH.open("w", encoding="utf-8") as file:
+    with MODEL_SETUP_SUMMARY_PATH.open("w", encoding="utf-8") as file:
         json.dump(summary, file, indent=2)
 
-    print_success(f"Summary saved: {relative_path(MODEL_SETUP_RUN_PATH)}")
-    LOGGER.info("Model Setup summary saved: %s", relative_path(MODEL_SETUP_RUN_PATH))
+    print_success(f"Summary saved: {relative_path(MODEL_SETUP_SUMMARY_PATH)}")
+    LOGGER.info(
+        "Model Setup summary saved: %s",
+        relative_path(MODEL_SETUP_SUMMARY_PATH),
+    )
 
 
 def build_stage_summary(
@@ -320,7 +321,7 @@ def run_model_setup() -> int:
         "stages": [],
     }
 
-    print_info(f"Setup details: {relative_path(MODEL_SETUP_RUN_PATH)}")
+    print_info(f"Setup summary: {relative_path(MODEL_SETUP_SUMMARY_PATH)}")
     print()
 
     for label, script_path, args in pipeline:
@@ -438,8 +439,6 @@ def print_menu() -> None:
     print("6) Model Setup")
     print("7) Exit")
     print()
-    print("=" * 60)
-    print()
 
 
 def read_choice() -> str:
@@ -500,19 +499,11 @@ def handle_menu_choice(choice: str) -> int | None:
     if choice == "2":
         return_code = run_runtime_pipeline()
         LOGGER.info("Rank Risk exited with code %s", return_code)
-
-        if return_code != 0:
-            print_warning(f"Rank Risk exited: code {return_code}")
-
         return None
 
     if choice == "6":
         return_code = run_model_setup()
         LOGGER.info("Model Setup exited with code %s", return_code)
-
-        if return_code != 0:
-            print_warning(f"Model Setup exited: code {return_code}")
-
         return None
 
     if choice in STAGES:
@@ -523,9 +514,7 @@ def handle_menu_choice(choice: str) -> int | None:
         else:
             return_code = handle_single_stage(label, script_path)
 
-        if return_code != 0:
-            print_warning(f"{label} exited: code {return_code}")
-
+        LOGGER.info("%s exited with code %s", label, return_code)
         return None
 
     print()
