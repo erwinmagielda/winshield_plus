@@ -252,7 +252,8 @@ def confirm_cleanup() -> bool:
     print_success("Preserved: .gitkeep placeholders")
     print()
 
-    response = input("Type YES to continue: ").strip()
+    print("Type YES to continue: ", end="", flush=True)
+    response = input().strip()
 
     return response == "YES"
 
