@@ -293,11 +293,16 @@ def print_runtime_summary(runtime_data: pd.DataFrame) -> None:
 
     print_section("Runtime Data")
     print_success(f"Input: {relative_path(RUNTIME_DATA_PATH)}")
+
+    kb_count = runtime_data["kb_id"].nunique()
+    cve_count = runtime_data["cve_id"].nunique()
+    row_count = len(runtime_data)
+
     print_success(
         "Scope: "
-        f"{runtime_data['kb_id'].nunique()} KBs, "
-        f"{runtime_data['cve_id'].nunique()} CVEs, "
-        f"{len(runtime_data)} rows"
+        f"{kb_count} {pluralise(kb_count, 'KB')}, "
+        f"{cve_count} {pluralise(cve_count, 'CVE')}, "
+        f"{row_count} {pluralise(row_count, 'row')}"
     )
 
 
@@ -330,9 +335,11 @@ def print_ml_summary(predictions: pd.DataFrame) -> None:
     )
 
     cluster_distribution = ", ".join(
-        f"{cluster_id} {count}"
-        for cluster_id, count in predictions["cluster"].value_counts().sort_index().items()
-    )
+    f"Cluster {cluster_id}: {count}"
+    for cluster_id, count in predictions["cluster"].value_counts().sort_index().items()
+)
+
+    print_success(f"Cluster distribution: {cluster_distribution}")
 
     print_success(f"ML priority labels: {ml_distribution}")
     print_success(f"Clusters: {cluster_distribution}")
@@ -414,7 +421,8 @@ def print_top_cve_preview(results: list[dict[str, Any]]) -> None:
             )
 
         if hidden_count > 0:
-            print_info(f"Additional CVEs hidden from terminal: {hidden_count}")
+            print()
+            print_info(f"CVEs hidden from terminal: {hidden_count}")
             print_info("Full CVE breakdown saved to ranking JSON and Markdown report")
 
 
