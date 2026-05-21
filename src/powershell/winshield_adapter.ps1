@@ -89,7 +89,7 @@ function ConvertTo-WinShieldCveId {
 
     $text = ([string]$Value).Trim().ToUpper()
 
-    if ($text -like 'CVE-*') {
+    if ($text -match '^CVE-\d{4}-\d{4,}$') {
         return $text
     }
 

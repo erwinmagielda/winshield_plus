@@ -5,7 +5,7 @@ Builds training and runtime datasets from WinShield+ scan JSON files.
 
 The pipeline flattens KB/CVE/month relationships, enriches CVEs with MSRC
 metadata, optionally applies shared policy labels for training, validates
-model-ready rows, and exports a structured pipeline summary.
+model-ready CVE rows, and exports a structured pipeline summary.
 """
 
 from __future__ import annotations
@@ -187,6 +187,41 @@ def load_scan(path: Path) -> dict[str, Any]:
 
 
 # ------------------------------------------------------------
+# CVE VALIDATION HELPERS
+# ------------------------------------------------------------
+
+def is_cve_id(value: Any) -> bool:
+    """Return True if a value looks like a CVE identifier."""
+
+    text = str(value).strip().upper()
+
+    if not text.startswith("CVE-"):
+        return False
+
+    parts = text.split("-")
+
+    if len(parts) != 3:
+        return False
+
+    year = parts[1]
+    sequence = parts[2]
+
+    return year.isdigit() and len(year) == 4 and sequence.isdigit() and len(sequence) >= 4
+
+
+def normalise_cve_id(value: Any) -> str:
+    """Return a normalised uppercase CVE identifier."""
+
+    return str(value).strip().upper()
+
+
+def normalise_kb_id(value: Any) -> str:
+    """Return a normalised uppercase KB identifier."""
+
+    return str(value).strip().upper()
+
+
+# ------------------------------------------------------------
 # STEP 1: FLATTEN
 # ------------------------------------------------------------
 
@@ -213,13 +248,14 @@ def flatten_scans(mode: str) -> tuple[Path, dict[str, Any]]:
         print(f"    - {relative_path(scan_path)}")
 
     rows: list[dict[str, Any]] = []
-    skipped_kbs = 0
+    skipped_kb_entries = 0
+    skipped_non_cve_ids = 0
 
     for scan_path in scan_files:
         scan = load_scan(scan_path)
 
         missing_kbs = {
-            str(kb).strip().upper()
+            normalise_kb_id(kb)
             for kb in scan.get("MissingKbs", [])
             if str(kb).strip()
         }
@@ -231,25 +267,31 @@ def flatten_scans(mode: str) -> tuple[Path, dict[str, Any]]:
             print_info(f"Missing KB filter: {len(missing_kbs)} KBs")
 
         for patch in scan.get("KbEntries", []):
-            kb_id = str(patch.get("KB") or "").strip().upper()
+            kb_id = normalise_kb_id(patch.get("KB"))
 
             if mode == "runtime" and kb_id not in missing_kbs:
-                skipped_kbs += 1
+                skipped_kb_entries += 1
                 continue
 
             months = patch.get("Months", [])
-            cves = patch.get("Cves", [])
+            cve_ids = patch.get("Cves", [])
 
-            if not kb_id or not months or not cves:
-                skipped_kbs += 1
+            if not kb_id or not months or not cve_ids:
+                skipped_kb_entries += 1
                 continue
 
-            for cve_id in cves:
+            for cve_id in cve_ids:
+                cve_id = normalise_cve_id(cve_id)
+
+                if not is_cve_id(cve_id):
+                    skipped_non_cve_ids += 1
+                    continue
+
                 for month_id in months:
                     rows.append(
                         {
                             "kb_id": kb_id,
-                            "cve_id": str(cve_id).strip().upper(),
+                            "cve_id": cve_id,
                             "month": str(month_id).strip(),
                         }
                     )
@@ -274,7 +316,8 @@ def flatten_scans(mode: str) -> tuple[Path, dict[str, Any]]:
         "raw_rows_created": int(raw_row_count),
         "duplicate_rows_removed": int(duplicate_rows_removed),
         "rows_created": int(deduplicated_count),
-        "skipped_kb_entries": int(skipped_kbs),
+        "skipped_kb_entries": int(skipped_kb_entries),
+        "skipped_non_cve_ids": int(skipped_non_cve_ids),
         "unique_kbs": int(flattened_data["kb_id"].nunique()) if not flattened_data.empty else 0,
         "unique_cves": int(flattened_data["cve_id"].nunique()) if not flattened_data.empty else 0,
         "unique_months": int(flattened_data["month"].nunique()) if not flattened_data.empty else 0,
@@ -285,6 +328,7 @@ def flatten_scans(mode: str) -> tuple[Path, dict[str, Any]]:
     print_success(f"Duplicate rows removed: {summary['duplicate_rows_removed']}")
     print_success(f"Rows created: {summary['rows_created']}")
     print_info(f"Skipped KB entries: {summary['skipped_kb_entries']}")
+    print_info(f"Skipped non-CVE IDs: {summary['skipped_non_cve_ids']}")
     print_success(f"Unique KBs: {summary['unique_kbs']}")
     print_success(f"Unique CVEs: {summary['unique_cves']}")
     print_success(f"Unique months: {summary['unique_months']}")
@@ -392,8 +436,9 @@ def fetch_msrc_metadata(month_ids: list[str]) -> dict[str, Any]:
         raise RuntimeError("MSRC metadata collection returned unexpected JSON structure")
 
     return {
-        str(cve_id).strip().upper(): value
+        normalise_cve_id(cve_id): value
         for cve_id, value in metadata.items()
+        if is_cve_id(cve_id)
     }
 
 
@@ -415,7 +460,7 @@ def calculate_patch_age_days(published_date: str | None, today: datetime) -> int
 
 
 def enrich_data(input_csv: Path) -> tuple[Path, dict[str, Any]]:
-    """Enrich flattened rows with MSRC CVE metadata and parsed CVSS fields."""
+    """Enrich flattened CVE rows with MSRC metadata and parsed CVSS fields."""
 
     print_section("Enrich")
 
@@ -437,28 +482,38 @@ def enrich_data(input_csv: Path) -> tuple[Path, dict[str, Any]]:
     metadata = fetch_msrc_metadata(month_ids)
 
     requested_cves = sorted(
-        str(cve).strip().upper()
+        normalise_cve_id(cve)
         for cve in flattened_data["cve_id"].dropna().unique()
+        if is_cve_id(cve)
     )
 
-    matched_cves = [cve for cve in requested_cves if cve in metadata]
-    missing_cves = [cve for cve in requested_cves if cve not in metadata]
+    matched_cves = [
+        cve
+        for cve in requested_cves
+        if cve in metadata
+    ]
+
+    missing_metadata_cves = [
+        cve
+        for cve in requested_cves
+        if cve not in metadata
+    ]
 
     print_success(f"Metadata CVEs returned: {len(metadata)}")
     print_success(f"Requested CVEs: {len(requested_cves)}")
     print_success(f"Matched CVEs: {len(matched_cves)}")
-    print_info(f"Missing CVEs: {len(missing_cves)}")
+    print_info(f"Missing metadata CVEs: {len(missing_metadata_cves)}")
 
-    if missing_cves:
-        print_info("First missing CVEs:")
-        for cve_id in missing_cves[:10]:
-            print(f"    - {cve_id}")
+    if missing_metadata_cves:
+        print_info("First missing metadata CVEs:")
+        for cve in missing_metadata_cves[:10]:
+            print(f"    - {cve}")
 
     today = datetime.now(UTC)
     enriched_rows: list[dict[str, Any]] = []
 
     for _, row in flattened_data.iterrows():
-        cve_id = str(row["cve_id"]).strip().upper()
+        cve_id = normalise_cve_id(row["cve_id"])
         cve_metadata = metadata.get(cve_id, {})
 
         published_date = cve_metadata.get("PublishedDate")
@@ -467,6 +522,7 @@ def enrich_data(input_csv: Path) -> tuple[Path, dict[str, Any]]:
         enriched_rows.append(
             {
                 **row,
+                "kb_id": normalise_kb_id(row["kb_id"]),
                 "cve_id": cve_id,
                 "cvss_score": cve_metadata.get("BaseScore"),
                 "severity": cve_metadata.get("Severity"),
@@ -498,8 +554,8 @@ def enrich_data(input_csv: Path) -> tuple[Path, dict[str, Any]]:
         "metadata_cves_returned": int(len(metadata)),
         "requested_cves": int(len(requested_cves)),
         "matched_cves": int(len(matched_cves)),
-        "missing_cves": int(len(missing_cves)),
-        "first_missing_cves": missing_cves[:10],
+        "missing_metadata_cves": int(len(missing_metadata_cves)),
+        "first_missing_metadata_cves": missing_metadata_cves[:10],
         "rows_enriched": int(len(enriched_data)),
         "duplicate_rows_removed": int(duplicate_rows_removed),
         "rows_with_cvss_score": cvss_available,
@@ -601,8 +657,8 @@ def validate_data(input_csv: Path, mode: str) -> tuple[Path, dict[str, Any]]:
     pipeline_data["cve_id"] = pipeline_data["cve_id"].astype(str).str.strip().str.upper()
     pipeline_data["kb_id"] = pipeline_data["kb_id"].astype(str).str.strip().str.upper()
 
-    non_cve_count = int((~pipeline_data["cve_id"].str.startswith("CVE-")).sum())
-    pipeline_data = pipeline_data[pipeline_data["cve_id"].str.startswith("CVE-")]
+    non_cve_count = int((~pipeline_data["cve_id"].apply(is_cve_id)).sum())
+    pipeline_data = pipeline_data[pipeline_data["cve_id"].apply(is_cve_id)]
 
     required_columns = [
         "cvss_score",
