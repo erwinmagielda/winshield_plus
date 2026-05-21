@@ -369,8 +369,8 @@ def run_model_setup() -> int:
     LOGGER.info("Model Setup started")
 
     pipeline = [
-        ("Data pipeline", DATA_PIPELINE_SCRIPT, ["--mode", "training"]),
-        ("Model pipeline", MODEL_PIPELINE_SCRIPT, []),
+        ("Data Pipeline", DATA_PIPELINE_SCRIPT, ["--mode", "training"]),
+        ("Model Pipeline", MODEL_PIPELINE_SCRIPT, []),
     ]
 
     summary: dict[str, Any] = {
@@ -454,8 +454,8 @@ def run_runtime_pipeline() -> int:
         return 1
 
     pipeline = [
-        ("Runtime data pipeline", DATA_PIPELINE_SCRIPT, ["--mode", "runtime"]),
-        ("Risk prioritiser", PRIORITISER_SCRIPT, []),
+        ("Runtime Data Pipeline", DATA_PIPELINE_SCRIPT, ["--mode", "runtime"]),
+        ("Risk Prioritiser", PRIORITISER_SCRIPT, []),
     ]
 
     for label, script_path, args in pipeline:
