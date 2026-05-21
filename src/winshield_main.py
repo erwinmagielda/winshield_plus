@@ -241,16 +241,73 @@ def run_python_script_live(
         return 1, "".join(output_lines)
 
 
-def run_single_stage(label: str, script_path: Path) -> int:
+def run_python_script_interactive(
+    label: str,
+    script_path: Path,
+    args: list[str] | None = None,
+) -> int:
+    """
+    Run an interactive Python script directly in the terminal.
+
+    Used for workflows that require operator input. These stages must inherit
+    stdin/stdout directly instead of running through a live stdout pipe.
+    """
+
+    if args is None:
+        args = []
+
+    if not script_path.is_file():
+        print_error(f"Stage script missing: {relative_path(script_path)}")
+        LOGGER.error("Stage script missing: %s", relative_path(script_path))
+        return 1
+
+    LOGGER.info(
+        "Running interactive stage: %s (%s)",
+        label,
+        relative_path(script_path),
+    )
+
+    try:
+        result = subprocess.run(
+            [PYTHON_EXE, "-u", str(script_path), *args],
+            cwd=ROOT_DIR,
+            check=False,
+        )
+
+        return int(result.returncode or 0)
+
+    except KeyboardInterrupt:
+        print()
+        print_warning(f"{label} cancelled")
+        LOGGER.warning("%s cancelled", label)
+        return 130
+
+    except Exception as exc:
+        print_error(f"{label} failed to launch: {exc}")
+        LOGGER.exception("%s failed to launch", label)
+        return 1
+
+
+def run_single_stage(
+    label: str,
+    script_path: Path,
+    interactive: bool = False,
+) -> int:
     """Run a single menu stage and return its exit code."""
 
     print_workflow_header(label)
     print_step(f"Starting {label}")
 
-    return_code, _ = run_python_script_live(
-        label=label,
-        script_path=script_path,
-    )
+    if interactive:
+        return_code = run_python_script_interactive(
+            label=label,
+            script_path=script_path,
+        )
+    else:
+        return_code, _ = run_python_script_live(
+            label=label,
+            script_path=script_path,
+        )
 
     if return_code == 0:
         LOGGER.info("%s completed successfully", label)
@@ -472,7 +529,11 @@ def handle_clear_artefacts(label: str, script_path: Path) -> int:
 
     close_logger()
 
-    return_code = run_single_stage(label, script_path)
+    return_code = run_single_stage(
+        label=label,
+        script_path=script_path,
+        interactive=True,
+    )
 
     restart_logger()
     LOGGER.info("Clear Artefacts exited with code %s", return_code)
@@ -483,7 +544,17 @@ def handle_clear_artefacts(label: str, script_path: Path) -> int:
 def handle_single_stage(label: str, script_path: Path) -> int:
     """Run a standard single-script menu stage."""
 
-    return_code = run_single_stage(label, script_path)
+    interactive = label in {
+        "Download Update",
+        "Install Update",
+    }
+
+    return_code = run_single_stage(
+        label=label,
+        script_path=script_path,
+        interactive=interactive,
+    )
+
     LOGGER.info("%s exited with code %s", label, return_code)
 
     return return_code

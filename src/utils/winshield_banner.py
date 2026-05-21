@@ -46,7 +46,7 @@ def print_menu_title() -> None:
     """Print a compact menu title without repeating the logo."""
 
     print()
-    print("WinShield+ Operator Menu")
+    print("WinShield+")
     print(HEADER_LINE)
     print()
 
