@@ -288,10 +288,13 @@ def confirm_cleanup() -> bool:
     """Ask the operator to confirm cleanup before deleting generated files."""
 
     print_section("User Confirmation")
+    print("[!] Remove generated artefacts [Y/n]?: ", end="", flush=True)
 
     try:
-        response = input("[!] Remove generated artefacts [Y/n]?: ").strip().lower()
+        response = input().strip().lower()
     except EOFError:
+        print()
+        print_warning("Input stream unavailable")
         return False
 
     return response in {"y", "yes"}

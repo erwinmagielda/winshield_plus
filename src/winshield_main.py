@@ -211,6 +211,7 @@ def run_python_script_live(
         process = subprocess.Popen(
             [PYTHON_EXE, "-u", str(script_path), *args],
             cwd=ROOT_DIR,
+            stdin=sys.stdin,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
