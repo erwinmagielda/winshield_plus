@@ -65,7 +65,6 @@ RUNTIME_DIR = get_runtime_dir()
 # ------------------------------------------------------------
 
 KB_TABLE_LIMIT = 10
-CVE_PREVIEW_LIMIT = 5
 
 
 # ------------------------------------------------------------
@@ -108,6 +107,24 @@ def format_months(entry: dict[str, Any]) -> str:
         return "-"
 
     return ", ".join(months)
+
+
+def format_update_window(baseline: dict[str, Any]) -> str:
+    """Return a compact update window from baseline MonthIds."""
+
+    start_id = baseline.get("LcuMonthId")
+    end_id = baseline.get("MsrcLatestMonthId")
+
+    if not start_id and not end_id:
+        return "-"
+
+    if start_id == end_id or not end_id:
+        return str(start_id)
+
+    if not start_id:
+        return str(end_id)
+
+    return f"{start_id} to {end_id}"
 
 
 def get_kb_status(
@@ -156,10 +173,7 @@ def clear_runtime_directory() -> int:
 
     removed_count = 0
 
-    print_step("Clearing runtime artefacts")
-
     for item in RUNTIME_DIR.iterdir():
-
         if is_preserved_placeholder(item):
             continue
 
@@ -172,7 +186,6 @@ def clear_runtime_directory() -> int:
         removed_count += 1
 
     print_success(f"Runtime directory ready: {relative_path(RUNTIME_DIR)}")
-    print_info(f"Runtime artefacts removed: {removed_count}")
 
     return removed_count
 
@@ -410,20 +423,15 @@ def build_kb_rows(
     logical_present_kbs: set[str],
     superseded_by: dict[str, list[str]],
 ) -> list[dict[str, Any]]:
-    """Build compact KB rows for console display."""
-
-    kb_index: dict[str, dict[str, Any]] = {
-        entry["KB"]: entry
-        for entry in kb_entries
-        if entry.get("KB")
-    }
-
-    all_kbs = sorted(set(kb_index) | installed_kbs | logical_present_kbs)
+    """Build compact mapped KB rows for console display."""
 
     rows: list[dict[str, Any]] = []
 
-    for kb_id in all_kbs:
-        entry = kb_index.get(kb_id)
+    for entry in sorted(kb_entries, key=lambda item: item.get("KB", "")):
+        kb_id = normalise_kb_id(entry.get("KB"))
+
+        if not kb_id:
+            continue
 
         rows.append(
             {
@@ -435,8 +443,8 @@ def build_kb_rows(
                     logical_present_kbs=logical_present_kbs,
                     superseded_by=superseded_by,
                 ),
-                "months": format_months(entry or {}),
-                "cve_count": count_cves(entry or {}),
+                "months": format_months(entry),
+                "cve_count": count_cves(entry),
             }
         )
 
@@ -446,10 +454,10 @@ def build_kb_rows(
 def print_kb_summary_table(rows: list[dict[str, Any]]) -> None:
     """Print a compact KB correlation table without expanding every CVE."""
 
-    print_section("KB correlation")
+    print_section("KB Correlation")
 
     if not rows:
-        print_warning("No KB rows available")
+        print_warning("No mapped KB rows available")
         return
 
     print(
@@ -473,41 +481,8 @@ def print_kb_summary_table(rows: list[dict[str, Any]]) -> None:
     remaining_rows = len(rows) - KB_TABLE_LIMIT
 
     if remaining_rows > 0:
-        print_info(f"Additional KB rows hidden: {remaining_rows}")
+        print_info(f"Additional mapped KB rows hidden: {remaining_rows}")
         print_info("Full KB/CVE details are saved in the runtime JSON")
-
-
-def print_missing_kbs(
-    missing_kbs: list[str],
-    kb_entries: list[dict[str, Any]],
-) -> None:
-    """Print missing KB summary with associated months and CVE counts."""
-
-    print_section("Missing KBs")
-
-    if not missing_kbs:
-        print_success("No missing KBs detected")
-        return
-
-    kb_index = {
-        entry.get("KB"): entry
-        for entry in kb_entries
-    }
-
-    for kb_id in missing_kbs:
-        entry = kb_index.get(kb_id, {})
-        months = ", ".join(entry.get("Months") or [])
-        cves = entry.get("Cves") or []
-        preview_cves = cves[:CVE_PREVIEW_LIMIT]
-        hidden_count = len(cves) - len(preview_cves)
-
-        print_warning(f"{kb_id} | Months: {months} | CVEs: {len(cves)}")
-
-        if preview_cves:
-            print_info(f"CVE preview: {', '.join(preview_cves)}")
-
-        if hidden_count > 0:
-            print_info(f"Additional CVEs hidden: {hidden_count}")
 
 
 # ------------------------------------------------------------
@@ -536,7 +511,7 @@ def main() -> int:
     """Run the WinShield+ system scan workflow."""
 
     try:
-        print_section("Runtime preparation")
+        print_section("Runtime Preparation")
         clear_runtime_directory()
 
         print_section("Baseline")
@@ -554,8 +529,7 @@ def main() -> int:
             f"({baseline.get('Build')})"
         )
         print_success(f"Product: {product_name_hint}")
-        print_info(f"LCU MonthId: {baseline.get('LcuMonthId')}")
-        print_info(f"Latest MSRC MonthId: {baseline.get('MsrcLatestMonthId')}")
+        print_info(f"Update window: {format_update_window(baseline)}")
 
         print_section("Inventory")
         print_step("Collecting installed KB inventory")
@@ -568,20 +542,16 @@ def main() -> int:
 
         print_success(f"Installed KBs: {len(installed_kbs)}")
 
-        print_section("MSRC correlation")
-        print_step("Building MonthId range")
+        print_section("MSRC Correlation")
         month_ids = build_month_ids_from_lcu(baseline)
         month_chunks = chunk_list(month_ids, 3)
 
+        print_step("Querying MSRC CVRF data")
         print_success(f"Month range: {format_month_range(month_ids)}")
-        print_info(f"Months requested: {len(month_ids)}")
-        print_info(f"Month chunks: {len(month_chunks)}")
 
         merged_entries: dict[str, dict[str, Any]] = {}
         months_with_entries: list[str] = []
         total_entries_returned = 0
-
-        print_step("Querying MSRC CVRF data")
 
         for month_chunk in month_chunks:
             msrc_data = run_powershell_script(
@@ -606,10 +576,7 @@ def main() -> int:
             return 0
 
         kb_entries = finalise_kb_entries(list(merged_entries.values()))
-
-        print_success(f"Raw KB entries returned: {total_entries_returned}")
         print_success(f"KB entries mapped: {len(kb_entries)}")
-        print_success(f"Months with entries: {len(set(months_with_entries))}")
 
         print_section("Supersedence")
         print_step("Resolving logical KB presence")
@@ -624,10 +591,14 @@ def main() -> int:
         expected_kbs = {entry["KB"] for entry in kb_entries}
         missing_kbs = sorted(expected_kbs - logical_present_kbs)
 
-        print_section("Summary")
+        print_section("Scan Summary")
         print_success(f"Expected KBs: {len(expected_kbs)}")
         print_success(f"Installed or superseded KBs: {len(expected_kbs - set(missing_kbs))}")
-        print_success(f"Missing KBs: {len(missing_kbs)}")
+
+        if missing_kbs:
+            print_warning(f"Missing KBs: {len(missing_kbs)}")
+        else:
+            print_success("Missing KBs: 0")
 
         kb_rows = build_kb_rows(
             kb_entries=kb_entries,
@@ -638,16 +609,12 @@ def main() -> int:
 
         print_kb_summary_table(kb_rows)
 
-        print_missing_kbs(
-            missing_kbs=missing_kbs,
-            kb_entries=kb_entries,
-        )
-
         scan_result = {
             "Baseline": baseline,
             "InstalledKbs": sorted(installed_kbs),
             "MonthsRequested": month_ids,
             "MonthsWithEntries": sorted(set(months_with_entries)),
+            "RawKbEntriesReturned": total_entries_returned,
             "KbEntries": kb_entries,
             "MissingKbs": missing_kbs,
         }

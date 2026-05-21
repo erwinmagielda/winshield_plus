@@ -105,11 +105,26 @@ def utc_timestamp() -> str:
     return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
+def display_mode(mode: str) -> str:
+    """Return a display-friendly pipeline mode."""
+
+    return mode.title()
+
+
+def pluralise(value: int, singular: str, plural: str | None = None) -> str:
+    """Return a simple pluralised label."""
+
+    if value == 1:
+        return singular
+
+    return plural or f"{singular}s"
+
+
 def print_pipeline_header(mode: str) -> None:
     """Print the data pipeline header."""
 
     print()
-    print(f"Data pipeline ({mode})")
+    print(f"Data Pipeline ({display_mode(mode)})")
     print("=" * 60)
 
 
@@ -237,20 +252,15 @@ def get_flatten_sources(mode: str) -> tuple[list[Path], Path, Path]:
 def print_flatten_source_summary(
     mode: str,
     scan_files: list[Path],
-    source_directory: Path,
 ) -> None:
     """Print compact flatten source information."""
 
     if mode == "training":
         print_step("Reading training scans")
-    else:
-        print_step("Reading latest runtime scan")
+        print_success(f"Scan files: {len(scan_files)}")
+        return
 
-    print_success(f"Source directory: {relative_path(source_directory)}")
-    print_success(f"Scan files: {len(scan_files)}")
-
-    if mode == "runtime" and scan_files:
-        print_info(f"Runtime scan: {relative_path(scan_files[0])}")
+    print_step("Reading latest runtime scan")
 
 
 def flatten_scans(mode: str) -> tuple[Path, dict[str, Any]]:
@@ -263,7 +273,6 @@ def flatten_scans(mode: str) -> tuple[Path, dict[str, Any]]:
     print_flatten_source_summary(
         mode=mode,
         scan_files=scan_files,
-        source_directory=source_directory,
     )
 
     rows: list[dict[str, Any]] = []
@@ -357,14 +366,17 @@ def flatten_scans(mode: str) -> tuple[Path, dict[str, Any]]:
     if mode == "runtime":
         print_success(f"Missing KBs analysed: {summary['missing_kbs_total']}")
 
-    print_success(f"Raw rows: {summary['raw_rows_created']}")
-    print_success(f"Rows after deduplication: {summary['rows_created']}")
-    print_info(f"Duplicate rows removed: {summary['duplicate_rows_removed']}")
-    print_info(f"Skipped KB entries: {summary['skipped_kb_entries']}")
-    print_info(f"Skipped non-CVE IDs: {summary['skipped_non_cve_ids']}")
-    print_success(f"Unique KBs: {summary['unique_kbs']}")
-    print_success(f"Unique CVEs: {summary['unique_cves']}")
-    print_success(f"Unique months: {summary['unique_months']}")
+    print_success(
+        f"Rows: {summary['raw_rows_created']} -> {summary['rows_created']}"
+    )
+
+    print_success(
+        "Scope: "
+        f"{summary['unique_kbs']} {pluralise(summary['unique_kbs'], 'KB')}, "
+        f"{summary['unique_cves']} {pluralise(summary['unique_cves'], 'CVE')}, "
+        f"{summary['unique_months']} {pluralise(summary['unique_months'], 'month')}"
+    )
+
     print_success(f"Output: {relative_path(output_path)}")
 
     return output_path, summary
@@ -510,8 +522,6 @@ def enrich_data(input_csv: Path) -> tuple[Path, dict[str, Any]]:
     )
 
     print_step("Collecting MSRC metadata")
-    print_success(f"MonthIds requested: {len(month_ids)}")
-    print_info(f"Metadata script: {relative_path(POWERSHELL_SCRIPT)}")
 
     metadata = fetch_msrc_metadata(month_ids)
 
@@ -532,20 +542,6 @@ def enrich_data(input_csv: Path) -> tuple[Path, dict[str, Any]]:
         for cve in requested_cves
         if cve not in metadata
     ]
-
-    print_success(f"Metadata CVEs returned: {len(metadata)}")
-    print_success(f"Requested CVEs: {len(requested_cves)}")
-    print_success(f"Matched CVEs: {len(matched_cves)}")
-    print_info(f"Missing metadata CVEs: {len(missing_metadata_cves)}")
-
-    if missing_metadata_cves:
-        preview = ", ".join(missing_metadata_cves[:5])
-        remaining = len(missing_metadata_cves) - min(len(missing_metadata_cves), 5)
-
-        print_info(f"Missing metadata preview: {preview}")
-
-        if remaining > 0:
-            print_info(f"Additional missing metadata CVEs hidden: {remaining}")
 
     today = datetime.now(UTC)
     enriched_rows: list[dict[str, Any]] = []
@@ -601,10 +597,22 @@ def enrich_data(input_csv: Path) -> tuple[Path, dict[str, Any]]:
         "output": relative_path(output_path),
     }
 
-    print_success(f"Rows enriched: {summary['rows_enriched']}")
-    print_info(f"Duplicate rows removed: {summary['duplicate_rows_removed']}")
-    print_success(f"Rows with CVSS score: {summary['rows_with_cvss_score']}")
-    print_success(f"Rows with attack vector: {summary['rows_with_attack_vector']}")
+    print_success(
+        f"CVEs matched: {summary['matched_cves']} / {summary['requested_cves']}"
+    )
+
+    if summary["missing_metadata_cves"] > 0:
+        print_info(f"Missing metadata CVEs: {summary['missing_metadata_cves']}")
+
+    model_metadata_rows = min(
+        summary["rows_with_cvss_score"],
+        summary["rows_with_attack_vector"],
+    )
+
+    print_success(
+        f"Rows with model metadata: {model_metadata_rows} / {summary['rows_enriched']}"
+    )
+
     print_success(f"Output: {relative_path(output_path)}")
 
     return output_path, summary
@@ -648,16 +656,15 @@ def label_training_data(input_csv: Path) -> tuple[Path, dict[str, Any]]:
         "output": relative_path(output_path),
     }
 
-    print_step("Applying shared policy risk labels")
+    print_step("Applying policy labels")
     print_success(f"Rows labelled: {summary['rows_labelled']}")
-    print_success(f"Policy risk min: {summary['policy_risk_min']:.2f}")
-    print_success(f"Policy risk max: {summary['policy_risk_max']:.2f}")
-    print_success(f"Policy risk mean: {summary['policy_risk_mean']:.2f}")
 
-    print_info("Priority distribution:")
-    for label, count in label_distribution.items():
-        print(f"    - {label}: {count}")
+    priority_summary = ", ".join(
+        f"{label} {count}"
+        for label, count in label_distribution.items()
+    )
 
+    print_success(f"Priority labels: {priority_summary}")
     print_success(f"Output: {relative_path(output_path)}")
 
     return output_path, summary
@@ -740,12 +747,13 @@ def validate_data(input_csv: Path, mode: str) -> tuple[Path, dict[str, Any]]:
         "output": relative_path(output_path),
     }
 
-    print_success(f"Rows before: {summary['rows_before']}")
-    print_success(f"Rows after: {summary['rows_after']}")
-    print_info(f"Rows removed: {summary['rows_dropped']}")
-    print_info(f"Non-CVE rows removed: {summary['non_cve_rows_removed']}")
-    print_info(f"Rows missing required fields: {summary['rows_missing_required_fields']}")
-    print_info(f"Duplicate rows removed: {summary['duplicate_rows_removed']}")
+    print_success(
+        f"Rows retained: {summary['rows_after']} / {summary['rows_before']}"
+    )
+
+    if summary["rows_dropped"] > 0:
+        print_info(f"Rows removed: {summary['rows_dropped']}")
+
     print_success(f"Output: {relative_path(output_path)}")
 
     if after_count == 0:
@@ -783,7 +791,7 @@ def run_pipeline(mode: str) -> Path:
     else:
         summary["label"] = None
         print_section("Label")
-        print_info("Skipped in runtime mode")
+        print_info("Skipped for runtime mode")
 
     output_path, validate_summary = validate_data(output_path, mode)
     summary["validate"] = validate_summary
@@ -797,7 +805,7 @@ def run_pipeline(mode: str) -> Path:
     save_pipeline_summary(mode, summary)
 
     print()
-    print_success(f"Data pipeline ({mode}) completed")
+    print_success(f"Data Pipeline ({display_mode(mode)}) completed")
 
     return output_path
 
@@ -813,11 +821,11 @@ def main() -> int:
 
     except KeyboardInterrupt:
         print()
-        print_warning("Data pipeline cancelled")
+        print_warning("Data Pipeline cancelled")
         return 130
 
     except Exception as exc:
-        print_error(f"Data pipeline failed: {exc}")
+        print_error(f"Data Pipeline failed: {exc}")
         return 1
 
 

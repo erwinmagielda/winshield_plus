@@ -1,5 +1,5 @@
 """
-WinShield+ installer.
+WinShield+ package installer.
 
 Installs an operator-selected Windows update package from the downloads
 directory. Supports .msu packages through WUSA and .cab packages through DISM.
@@ -184,7 +184,7 @@ def safe_input(prompt: str) -> str:
 def select_package(packages: list[Path]) -> Path | None:
     """Ask the operator to select a package from the available downloads."""
 
-    print_section("Available packages")
+    print_section("Available Packages")
 
     for index, package_path in enumerate(packages, start=1):
         kb_label = extract_kb_label(package_path.name)
@@ -241,7 +241,7 @@ def main() -> int:
     """Run the WinShield+ update installer workflow."""
 
     try:
-        print_section("Pre-flight")
+        print_section("Configuration")
         print_step("Checking administrator privileges")
 
         if not is_admin():
@@ -250,14 +250,14 @@ def main() -> int:
 
         print_success("Administrator privileges confirmed")
 
-        print_section("Package discovery")
+        print_section("Package Discovery")
         print_success(f"Downloads directory: {relative_path(DOWNLOADS_DIR)}")
 
         packages = find_packages(DOWNLOADS_DIR)
         print_success(f"Packages found: {len(packages)}")
 
         if not packages:
-            print_success("No update packages found")
+            print_info("No update packages found")
             return 0
 
         selected_package = select_package(packages)

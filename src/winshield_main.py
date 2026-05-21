@@ -273,7 +273,9 @@ def save_model_setup_summary(summary: dict[str, Any]) -> None:
     with MODEL_SETUP_SUMMARY_PATH.open("w", encoding="utf-8") as file:
         json.dump(summary, file, indent=2)
 
-    print_success(f"Summary saved: {relative_path(MODEL_SETUP_SUMMARY_PATH)}")
+    print_success(
+        f"Model Setup summary saved: {relative_path(MODEL_SETUP_SUMMARY_PATH)}"
+    )
     LOGGER.info(
         "Model Setup summary saved: %s",
         relative_path(MODEL_SETUP_SUMMARY_PATH),

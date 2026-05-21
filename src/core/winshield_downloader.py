@@ -478,9 +478,9 @@ def choose_best_candidate(
 def print_candidate_scores(scored_candidates: list[ScoredCandidate]) -> None:
     """Print the highest scoring catalog candidates."""
 
-    print_info(f"Candidates matching baseline: {len(scored_candidates)}")
+    print_success(f"Candidates matching baseline: {len(scored_candidates)}")
 
-    for index, scored_candidate in enumerate(scored_candidates[:5], start=1):
+    for index, scored_candidate in enumerate(scored_candidates[:3], start=1):
         print(
             f"    {index}) Score {scored_candidate.score} | "
             f"{scored_candidate.candidate.title}"
@@ -557,13 +557,13 @@ def main() -> int:
     """Run the WinShield+ update downloader workflow."""
 
     try:
-        print_section("Runtime scan")
+        print_section("Runtime Scan")
         scan_path = find_latest_runtime_scan()
         print_success(f"Runtime scan: {relative_path(scan_path)}")
 
         scan_result = load_scan_result(scan_path)
 
-        print_section("Catalog constraints")
+        print_section("Catalog Constraints")
         constraints = build_constraints(scan_result.get("Baseline") or {})
         print_constraints(constraints)
 
@@ -583,7 +583,7 @@ def main() -> int:
 
         session = build_session()
 
-        print_section("Catalog search")
+        print_section("Catalog Search")
         print_step(f"Searching Microsoft Update Catalog: {selected_item.kb_id}")
 
         html = fetch_text(session, SEARCH_URL, params={"q": selected_item.kb_id})
@@ -616,7 +616,7 @@ def main() -> int:
         print_info(f"Last updated: {selected_candidate.last_updated}")
         print_info(f"Size: {selected_candidate.size}")
 
-        print_section("Resolve download")
+        print_section("Resolve Download")
         print_step("Resolving package URL")
 
         dialog_html = fetch_text(

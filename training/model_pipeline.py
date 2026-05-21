@@ -113,14 +113,14 @@ def relative_path(path: Path) -> str:
 def utc_timestamp() -> str:
     """Return UTC timestamp for summary metadata."""
 
-    return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return datetime.now(UTC).isoformat()
 
 
 def print_pipeline_header() -> None:
     """Print the model pipeline header."""
 
     print()
-    print("Model pipeline")
+    print("Model Pipeline")
     print("=" * 60)
 
 
@@ -137,7 +137,7 @@ def validate_required_inputs() -> tuple[bool, str | None]:
     if not VALIDATED_DATASET_PATH.is_file():
         return (
             False,
-            "Validated dataset missing. Run Data pipeline in training mode first.",
+            "Validated dataset missing. Run Data Pipeline in training mode first.",
         )
 
     return True, None
@@ -272,11 +272,10 @@ def print_stage_evaluation(stage_key: str, evaluation: dict[str, Any]) -> None:
         print_metric("Clusters created", metrics.get("clusters_created"), decimals=0)
 
         elbow_chart_path = evaluation.get("elbow_chart_path")
-        scatter_chart_path = evaluation.get("scatter_chart_path")
-
         if elbow_chart_path:
             print_success(f"Elbow chart saved: {elbow_chart_path}")
 
+        scatter_chart_path = evaluation.get("scatter_chart_path")
         if scatter_chart_path:
             print_success(f"Scatter chart saved: {scatter_chart_path}")
 
@@ -312,7 +311,7 @@ def build_artefact_summary() -> dict[str, Any]:
     return artefact_summary
 
 
-def save_model_pipeline_summary(summary: dict[str, Any]) -> Path:
+def save_model_pipeline_summary(summary: dict[str, Any]) -> None:
     """Save model pipeline summary JSON."""
 
     ensure_directory(SUMMARY_PATH.parent)
@@ -321,8 +320,6 @@ def save_model_pipeline_summary(summary: dict[str, Any]) -> Path:
         json.dump(summary, file, indent=2)
 
     print_success(f"Summary saved: {relative_path(SUMMARY_PATH)}")
-
-    return SUMMARY_PATH
 
 
 # ------------------------------------------------------------
@@ -379,7 +376,7 @@ def run_stage(
 
     except KeyboardInterrupt:
         print()
-        print_warning("Model pipeline cancelled")
+        print_warning("Model Pipeline cancelled")
 
         stage_summary["exit_code"] = 130
         stage_summary["status"] = "cancelled"
@@ -399,6 +396,11 @@ def run_stage(
 
     stage_summary["finished_at_utc"] = utc_timestamp()
 
+    if stage_summary["stderr"]:
+        print_warning(f"{label} produced stderr output")
+        for line in stage_summary["stderr"].splitlines()[:8]:
+            print(f"    {line}")
+
     stage_summary["evaluation"] = build_evaluation_summary(
         stage_key=stage_key,
         output=stage_summary["stdout"],
@@ -407,22 +409,13 @@ def run_stage(
     if stage_summary["exit_code"] == 0:
         stage_summary["status"] = "completed"
         print_stage_evaluation(stage_key, stage_summary["evaluation"])
-
-        if stage_summary["stderr"]:
-            print_warning("Warnings captured in model pipeline summary")
-
     else:
         stage_summary["status"] = "failed"
         print_error(f"{label} failed: exit code {stage_summary['exit_code']}")
 
-        if stage_summary["stderr"]:
-            print_warning("Last stderr lines:")
-            for line in stage_summary["stderr"].splitlines()[-5:]:
-                print(f"    {line}")
-
         if stage_summary["stdout"]:
             print_info("Last stdout lines:")
-            for line in stage_summary["stdout"].splitlines()[-5:]:
+            for line in stage_summary["stdout"].splitlines()[-8:]:
                 print(f"    {line}")
 
     return stage_summary
@@ -457,7 +450,7 @@ def main() -> int:
         "artefacts": {},
     }
 
-    print_section("Pre-flight")
+    print_section("Configuration")
     print_success(f"Training dataset: {relative_path(VALIDATED_DATASET_PATH)}")
     print_success(f"Models directory: {relative_path(MODELS_DIR)}")
     print_success(f"Charts directory: {relative_path(CHARTS_DIR)}")
@@ -470,8 +463,6 @@ def main() -> int:
         summary["status"] = "failed"
         summary["error"] = error_message
         summary["artefacts"] = build_artefact_summary()
-
-        print_section("Summary")
         save_model_pipeline_summary(summary)
 
         return 1
@@ -496,7 +487,7 @@ def main() -> int:
             save_model_pipeline_summary(summary)
 
             print()
-            print_error("Model pipeline stopped")
+            print_error("Model Pipeline stopped")
 
             return int(stage_summary["exit_code"])
 
@@ -507,7 +498,7 @@ def main() -> int:
     save_model_pipeline_summary(summary)
 
     print()
-    print_success("Model pipeline completed")
+    print_success("Model Pipeline completed")
 
     return 0
 

@@ -234,17 +234,6 @@ def predict_priorities(runtime_data: pd.DataFrame) -> pd.DataFrame:
 # KB RANKING
 # ------------------------------------------------------------
 
-def get_kb_order(predictions: pd.DataFrame) -> pd.Index:
-    """Return KB IDs ordered by highest policy risk."""
-
-    return (
-        predictions.groupby("kb_id")["policy_risk"]
-        .max()
-        .sort_values(ascending=False)
-        .index
-    )
-
-
 def build_results(predictions: pd.DataFrame) -> list[dict[str, Any]]:
     """Build JSON-serialisable KB ranking results."""
 
@@ -291,56 +280,59 @@ def build_results(predictions: pd.DataFrame) -> list[dict[str, Any]]:
 # ------------------------------------------------------------
 
 def print_runtime_summary(runtime_data: pd.DataFrame) -> None:
-    """Print runtime dataset summary."""
+    """Print compact runtime dataset summary."""
 
-    print_section("Runtime data")
+    print_section("Runtime Data")
     print_success(f"Input: {relative_path(RUNTIME_DATA_PATH)}")
-    print_success(f"Runtime rows: {len(runtime_data)}")
-    print_success(f"Unique KBs: {runtime_data['kb_id'].nunique()}")
-    print_success(f"Unique CVEs: {runtime_data['cve_id'].nunique()}")
-
-
-def print_feature_summary(features: pd.DataFrame) -> None:
-    """Print compact model feature preparation summary."""
-
-    print_section("Feature preparation")
-    print_success(f"Model feature rows: {len(features)}")
-    print_success(f"Model feature columns: {len(features.columns)}")
-    print_info("Policy output columns excluded from model features")
+    print_success(
+        "Scope: "
+        f"{runtime_data['kb_id'].nunique()} KBs, "
+        f"{runtime_data['cve_id'].nunique()} CVEs, "
+        f"{len(runtime_data)} rows"
+    )
 
 
 def print_policy_summary(predictions: pd.DataFrame) -> None:
-    """Print risk policy summary."""
+    """Print compact risk policy summary."""
 
-    print_section("Risk policy")
+    print_section("Risk Policy")
     print_info("Primary ranking: policy risk")
     print_info("Supporting signals: ML risk, ML priority, cluster")
-    print_success(f"Policy risk min: {predictions['policy_risk'].min():.2f}")
-    print_success(f"Policy risk max: {predictions['policy_risk'].max():.2f}")
-    print_success(f"Policy risk mean: {predictions['policy_risk'].mean():.2f}")
+    print_success(
+        "Policy risk range: "
+        f"{predictions['policy_risk'].min():.2f} to "
+        f"{predictions['policy_risk'].max():.2f}"
+    )
 
 
 def print_ml_summary(predictions: pd.DataFrame) -> None:
-    """Print supporting ML signal summary."""
+    """Print compact supporting ML signal summary."""
 
-    print_section("ML signals")
-    print_success(f"ML risk min: {predictions['ml_risk'].min():.2f}")
-    print_success(f"ML risk max: {predictions['ml_risk'].max():.2f}")
-    print_success(f"ML risk mean: {predictions['ml_risk'].mean():.2f}")
+    print_section("ML Signals")
+    print_success(
+        "ML risk range: "
+        f"{predictions['ml_risk'].min():.2f} to "
+        f"{predictions['ml_risk'].max():.2f}"
+    )
 
-    print_info("ML priority distribution:")
-    for label, count in predictions["ml_priority"].value_counts().items():
-        print(f"    - {label}: {count}")
+    ml_distribution = ", ".join(
+        f"{label} {count}"
+        for label, count in predictions["ml_priority"].value_counts().items()
+    )
 
-    print_info("Cluster distribution:")
-    for cluster_id, count in predictions["cluster"].value_counts().sort_index().items():
-        print(f"    - Cluster {cluster_id}: {count}")
+    cluster_distribution = ", ".join(
+        f"{cluster_id} {count}"
+        for cluster_id, count in predictions["cluster"].value_counts().sort_index().items()
+    )
+
+    print_success(f"ML priority labels: {ml_distribution}")
+    print_success(f"Clusters: {cluster_distribution}")
 
 
 def print_ranked_remediation(results: list[dict[str, Any]]) -> None:
     """Print aligned KB-level remediation order based on policy risk."""
 
-    print_section("Ranked remediation")
+    print_section("Ranked Remediation")
 
     if not results:
         print_warning("No ranking results produced")
@@ -376,7 +368,7 @@ def print_ranked_remediation(results: list[dict[str, Any]]) -> None:
 def print_top_cve_preview(results: list[dict[str, Any]]) -> None:
     """Print a compact top-CVE preview for each ranked KB."""
 
-    print_section("CVE preview")
+    print_section("CVE Preview")
 
     if not results:
         print_warning("No CVE preview available")
@@ -440,7 +432,7 @@ def main() -> int:
     """Run the WinShield+ risk prioritisation workflow."""
 
     try:
-        print_section("Pre-flight")
+        print_section("Configuration")
         print_step("Checking model artefacts")
         validate_model_artefacts()
         print_success("Model artefacts ready")
@@ -454,10 +446,11 @@ def main() -> int:
         print_success("Policy scores generated")
 
         features = prepare_features(policy_data)
-        print_feature_summary(features)
+        print_success(
+            f"Model features: {len(features)} rows, {len(features.columns)} columns"
+        )
 
         print_step("Loading trained models")
-        validate_model_artefacts()
         print_success("Trained models ready")
 
         print_step("Applying regression, classification, and clustering models")
@@ -479,17 +472,17 @@ def main() -> int:
         print_success(f"Report saved: {relative_path(report_path)}")
 
         print()
-        print_success("Risk prioritisation completed")
+        print_success("Rank Risk completed")
 
         return 0
 
     except KeyboardInterrupt:
         print()
-        print_warning("Risk prioritisation cancelled")
+        print_warning("Rank Risk cancelled")
         return 130
 
     except Exception as exc:
-        print_error(f"Risk prioritisation failed: {exc}")
+        print_error(f"Rank Risk failed: {exc}")
         return 1
 
 

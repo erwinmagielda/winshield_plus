@@ -27,6 +27,7 @@ if str(SRC_DIR) not in sys.path:
 from utils.winshield_banner import (  # noqa: E402
     print_error,
     print_info,
+    print_section,
     print_step,
     print_success,
     print_warning,
@@ -141,6 +142,53 @@ def write_gitkeep_files() -> None:
 
 
 # ------------------------------------------------------------
+# ARTEFACT COUNTING
+# ------------------------------------------------------------
+
+def count_directory_artefacts(directory: Path) -> int:
+    """Count removable generated artefacts inside a directory."""
+
+    ensure_directory(directory)
+
+    removable_count = 0
+
+    for item in directory.iterdir():
+        if is_preserved_placeholder(item):
+            continue
+
+        removable_count += 1
+
+    return removable_count
+
+
+def count_python_cache_artefacts() -> int:
+    """Count removable Python cache artefacts."""
+
+    cache_count = 0
+
+    for cache_dir in ROOT_DIR.rglob("__pycache__"):
+        if cache_dir.is_dir():
+            cache_count += 1
+
+    for bytecode_file in ROOT_DIR.rglob("*.pyc"):
+        if bytecode_file.is_file():
+            cache_count += 1
+
+    return cache_count
+
+
+def count_generated_artefacts() -> int:
+    """Count all removable generated artefacts before cleanup."""
+
+    directory_count = sum(
+        count_directory_artefacts(directory)
+        for directory in GENERATED_DIRS.values()
+    )
+
+    return directory_count + count_python_cache_artefacts()
+
+
+# ------------------------------------------------------------
 # CLEANUP HELPERS
 # ------------------------------------------------------------
 
@@ -192,7 +240,6 @@ def clear_directory_contents(directory: Path) -> CleanupResult:
     result = CleanupResult()
 
     for item in directory.iterdir():
-
         if is_preserved_placeholder(item):
             continue
 
@@ -240,30 +287,27 @@ def merge_results(target: CleanupResult, source: CleanupResult) -> None:
 def confirm_cleanup() -> bool:
     """Ask the operator to confirm cleanup before deleting generated files."""
 
-    print_warning("Generated artefacts will be removed")
-    print_info(f"Generated directories selected: {len(GENERATED_DIRS)}")
-    print_success(f"Preserved: {relative_path(SCANS_DIR)}")
-    print_success("Preserved: .gitkeep placeholders")
-    print()
+    print_section("User Confirmation")
 
-    print_warning("Type YES to continue, then press Enter")
-    response = input().strip()
+    try:
+        response = input("[!] Remove generated artefacts [Y/n]?: ").strip().lower()
+    except EOFError:
+        return False
 
-    return response == "YES"
+    return response in {"y", "yes"}
 
 
 # ------------------------------------------------------------
 # CONSOLE OUTPUT
 # ------------------------------------------------------------
 
-def print_cleanup_plan() -> None:
+def print_cleanup_scope(artefact_count: int) -> None:
     """Print compact cleanup scope before confirmation."""
 
-    print_step("Checking cleanup scope")
-    print_success(f"Source training scans preserved: {relative_path(SCANS_DIR)}")
-    print_info(f"Generated directories checked: {len(GENERATED_DIRS)}")
-    print_info("Python cache artefacts included")
-    print()
+    print_section("Cleanup Scope")
+    print_success(f"Preserved: {relative_path(SCANS_DIR)}")
+    print_success("Preserved: .gitkeep placeholders")
+    print_info(f"Generated artefacts found: {artefact_count}")
 
 
 def print_skipped_paths(title: str, paths: list[Path]) -> None:
@@ -288,49 +332,62 @@ def print_skipped_paths(title: str, paths: list[Path]) -> None:
 def main() -> int:
     """Run the WinShield+ artefact cleanup workflow."""
 
-    prepare_generated_directories()
+    try:
+        prepare_generated_directories()
 
-    if not SCANS_DIR.exists():
-        print_error(f"Source training scans missing: {relative_path(SCANS_DIR)}")
-        print_info("Cleanup stopped to avoid removing data unexpectedly")
-        return 1
+        if not SCANS_DIR.exists():
+            print_error(f"Source training scans missing: {relative_path(SCANS_DIR)}")
+            print_info("Cleanup stopped to avoid removing data unexpectedly")
+            return 1
 
-    print_cleanup_plan()
+        artefact_count = count_generated_artefacts()
 
-    if not confirm_cleanup():
+        print_cleanup_scope(artefact_count)
+
+        if artefact_count == 0:
+            print()
+            print_success("No generated artefacts found")
+            print_success("Clear Artefacts completed")
+            return 0
+
+        if not confirm_cleanup():
+            print()
+            print_info("Clear Artefacts cancelled")
+            return 0
+
+        print_section("Cleanup Execution")
+        print_step("Clearing generated artefacts")
+
+        total_result = CleanupResult()
+
+        for directory in GENERATED_DIRS.values():
+            result = clear_directory_contents(directory)
+            merge_results(total_result, result)
+
+        pycache_result = clear_python_cache()
+        merge_results(total_result, pycache_result)
+
+        write_gitkeep_files()
+
+        print_success(f"Removed artefacts: {total_result.removed_count}")
+        print_success("Directory structure preserved")
+
+        print_skipped_paths("Locked artefacts skipped", total_result.skipped_locked)
+        print_skipped_paths("Artefacts skipped due to errors", total_result.skipped_other)
+
         print()
-        print_info("Clear Artefacts cancelled")
+        print_success("Clear Artefacts completed")
+
         return 0
 
-    print()
-    print_step("Clearing generated artefacts")
+    except KeyboardInterrupt:
+        print()
+        print_warning("Clear Artefacts cancelled")
+        return 130
 
-    total_result = CleanupResult()
-
-    for directory in GENERATED_DIRS.values():
-        result = clear_directory_contents(directory)
-        merge_results(total_result, result)
-
-    pycache_result = clear_python_cache()
-    merge_results(total_result, pycache_result)
-
-    write_gitkeep_files()
-
-    print_success(f"Removed artefacts: {total_result.removed_count}")
-
-    if total_result.removed_count == 0:
-        print_info("No generated artefacts were present")
-
-    print_skipped_paths("Locked artefacts skipped", total_result.skipped_locked)
-    print_skipped_paths("Artefacts skipped due to errors", total_result.skipped_other)
-
-    print_success("Source training scans preserved")
-    print_success("Generated directory structure preserved")
-
-    print()
-    print_success("Clear Artefacts completed")
-
-    return 0
+    except Exception as exc:
+        print_error(f"Clear Artefacts failed: {exc}")
+        return 1
 
 
 # ------------------------------------------------------------
