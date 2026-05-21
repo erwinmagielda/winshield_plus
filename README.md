@@ -183,7 +183,7 @@ src/
 │   │   Supports Microsoft Update Catalog package download testing.
 │   │
 │   └── winshield_installer.py
-│       Supports local `.msu` and `.cab` package install attempts.
+│       Supports local .msu and .cab package install attempts.
 │
 ├── powershell/
 │   ├── winshield_baseline.ps1
