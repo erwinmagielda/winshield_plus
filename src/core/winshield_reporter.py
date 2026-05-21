@@ -399,20 +399,20 @@ def append_review_drivers(lines: list[str], results: list[dict[str, Any]]) -> No
     lines.append("")
 
 
-def append_cve_evidence(lines: list[str], results: list[dict[str, Any]]) -> None:
-    """Append full CVE-level evidence grouped by ranked KB."""
+def append_ranking_review(lines: list[str], results: list[dict[str, Any]]) -> None:
+    """Append full CVE-level ranking review grouped by ranked KB."""
 
-    lines.append("## CVE Evidence")
+    lines.append("## Ranking Review")
     lines.append("")
 
     if not results:
-        lines.append("No CVE evidence was generated.")
+        lines.append("No ranking review evidence was generated.")
         lines.append("")
         return
 
     lines.append(
-        "This section keeps the full CVE-level evidence out of the terminal "
-        "while preserving it in the Markdown report for review."
+        "This section stores the full CVE-level review that is hidden from the "
+        "terminal output during normal operation."
     )
     lines.append("")
 
@@ -421,14 +421,6 @@ def append_cve_evidence(lines: list[str], results: list[dict[str, Any]]) -> None
         cves = entry.get("cves", [])
 
         lines.append(f"### {kb_id}")
-        lines.append("")
-        lines.append(f"- Policy risk: {safe_float(entry.get('policy_risk')):.2f}")
-        lines.append(f"- ML risk: {safe_float(entry.get('ml_risk')):.2f}")
-        lines.append(f"- Policy priority: {markdown_escape(entry.get('policy_priority', 'Unknown'))}")
-        lines.append(f"- ML priority: {markdown_escape(entry.get('ml_priority', 'Unknown'))}")
-        lines.append(f"- Cluster: {safe_int(entry.get('cluster'))}")
-        lines.append(f"- CVEs reviewed: {safe_int(entry.get('cve_count'))}")
-        lines.append(f"- Review reason: {markdown_escape(entry.get('review_reason', 'Not available'))}")
         lines.append("")
 
         if not isinstance(cves, list) or not cves:
@@ -508,7 +500,7 @@ def build_report(results: list[dict[str, Any]]) -> str:
     append_method(lines)
     append_ranked_remediation(lines, results)
     append_review_drivers(lines, results)
-    append_cve_evidence(lines, results)
+    append_ranking_review(lines, results)
     append_notes(lines)
 
     return "\n".join(lines)
