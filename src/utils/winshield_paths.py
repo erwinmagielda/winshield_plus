@@ -317,7 +317,7 @@ def get_ranking_results_path() -> Path:
 def get_model_setup_summary_path() -> Path:
     """Return the model setup summary output path."""
 
-    return get_summaries_dir() / "model_setup_run.json"
+    return get_summaries_dir() / "model_setup_summary.json"
 
 
 def get_model_pipeline_summary_path() -> Path:
