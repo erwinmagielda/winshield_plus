@@ -2,13 +2,15 @@
 
 **Turns Windows patch state into missing-KB evidence, CVE enrichment, and explainable risk prioritisation.**
 
+[Companion Project: WinShield+ Collector](https://github.com/erwinmagielda/winshield_collector)
+
 WinShield+ is a Windows patch analysis workflow for authorised lab and endpoint review environments. It collects local Windows baseline and installed update evidence, correlates expected Microsoft security updates with MSRC CVE data, identifies missing KBs, enriches related CVEs, applies explainable policy-first risk scoring, and generates ranked remediation output with supporting machine learning signals.
 
 The project addresses a practical vulnerability management problem:
 
-> A Windows host may have installed updates, superseded updates, missing KBs, and many related CVEs. WinShield+ turns that patch state into structured evidence so missing updates can be reviewed, prioritised, and reported.
+> Windows patching is package-driven through KB updates, while vulnerability analysis is CVE-driven. WinShield+ connects those views so an operator can move from local patch state to evidence-backed remediation order.
 
-WinShield+ keeps the ranking logic explainable. Policy risk is the primary remediation signal, while regression, classification, and clustering outputs are included as supporting indicators for triage review.
+WinShield+ keeps the ranking logic explainable. Policy risk is the primary remediation signal, while regression, classification, and clustering outputs are included as supporting indicators for triage review. The project is designed for controlled lab and portfolio environments. It is not a replacement for WSUS, Intune, SCCM, Defender Vulnerability Management, or enterprise patch management.
 
 ---
 
@@ -38,49 +40,59 @@ WinShield+ focuses on the workflow around Windows patch review rather than treat
 
 ## Screenshots
 
-The screenshots below show WinShield+ running end-to-end as an operator-facing workflow. They are included to show the tool operating through cleanup, model setup, system scanning, runtime prioritisation, and Markdown reporting rather than only describing the architecture.
+The screenshots below show WinShield+ running end-to-end through cleanup, model setup, system scanning, runtime prioritisation, and Markdown reporting.
 
 ### Operator Menu
 
 ![Operator Menu](assets/operator_menu.png)
 
-The operator menu provides a controlled entry point for system scanning, risk ranking, update handling, artefact cleanup, model setup, and workflow exit. This keeps the tool usable from a single launcher rather than relying on separate one-off commands.
+The operator menu provides a controlled entry point for scanning, ranking, update handling, cleanup, model setup, and workflow exit.
 
 ### Clear Artefacts
 
 ![Clear Artefacts](assets/clear_artefacts.png)
 
-The cleanup workflow removes generated datasets, runtime scans, logs, downloaded packages, model artefacts, results, and Python cache folders while preserving source training scans and repository placeholders.
+The cleanup workflow removes generated artefacts while preserving source training scans and repository placeholders.
 
 ### Model Setup
 
-![Model Setup](assets/model_setup.png)
+![Model Setup - Data Pipeline](assets/model_setup-1.png)
 
-The model setup workflow rebuilds the training dataset, enriches CVEs with MSRC metadata, applies the shared risk policy, validates model-ready rows, trains supporting models, prints evaluation metrics, and saves model pipeline summaries.
+The first stage rebuilds the training dataset by flattening scan evidence, enriching CVEs with MSRC metadata, applying policy labels, and validating model-ready rows.
+
+![Model Setup - Model Pipeline](assets/model_setup-2.png)
+
+The second stage trains the supporting regression, classification, and clustering models, then saves model artefacts, charts, and pipeline summaries.
 
 ### Scan System
 
-![Scan System](assets/scan_system.png)
+![Scan System - Collection](assets/scan_system-1.png)
 
-The scan workflow collects OS baseline evidence, installed KB inventory, MSRC update mappings, supersedence context, and missing KBs. The runtime scan is saved as JSON for later ranking.
+The scan workflow collects OS baseline evidence, installed KB inventory, MSRC update mappings, and supersedence context.
 
-### KB Correlation
+![Scan System - KB Correlation](assets/scan_system-2.png)
 
-![KB Correlation](assets/kb_correlation.png)
-
-The KB correlation stage shows installed, missing, superseded, and unmapped update state. This demonstrates how local update evidence is compared against MSRC security update data.
+The KB correlation table shows expected MSRC KBs, local status, MonthId coverage, and CVE counts before exporting the runtime scan.
 
 ### Rank Risk
 
-![Rank Risk](assets/rank_risk.png)
+![Rank Risk - Runtime Pipeline](assets/rank_risk-1.png)
 
-The rank risk workflow rebuilds runtime CVE rows from the latest scan, enriches them, validates model-ready data, applies policy-first scoring, runs supporting ML inference, and prints ranked remediation output.
+The runtime pipeline rebuilds CVE rows from the latest scan, enriches them, validates model-ready rows, and saves runtime pipeline output.
+
+![Rank Risk - Inference](assets/rank_risk-2.png)
+
+The prioritiser applies policy risk scoring, loads trained models, and prints supporting ML signal summaries.
+
+![Rank Risk - Ranked Remediation](assets/rank_risk-3.png)
+
+The final ranking shows the missing KB, policy risk, ML risk, priority, cluster, CVE count, top driver, and CVE preview.
 
 ### Markdown Report
 
 ![Markdown Report](assets/markdown_report.png)
 
-The Markdown report turns ranked remediation output into a readable review artefact. It summarises runtime results, model evaluation, prioritisation method, ranked KBs, and review drivers.
+The Markdown report preserves the full review output, including ranked remediation, review drivers, and CVE-level evidence.
 
 ---
 
@@ -99,7 +111,7 @@ WinShield+ is built as a modular CLI workflow rather than a single patch-checkin
 | Model Pipeline | Regression, classification, and clustering models are trained as supporting triage components and saved under `models/`. |
 | Runtime Ranking | Missing KBs are ranked by maximum policy risk, with ML risk, ML priority, cluster ID, CVE count, and top risk driver shown as supporting context. |
 | Reporting | Markdown reports are generated from ranked remediation results and model pipeline summaries. |
-| Artefact Control | Generated datasets, runtime scans, logs, downloads, model artefacts, reports, summaries, and Python cache folders can be cleared while preserving source training scans. |
+| Artefact Control | Generated datasets, runtime scans, logs, downloads, model artefacts, reports, summaries, charts, and Python cache folders can be cleared while preserving source training scans. |
 
 ---
 
@@ -137,8 +149,17 @@ models/
 │   Stores trained regression, classification, and clustering artefacts.
 │
 results/
-│   Stores ranking JSON, Markdown reports, pipeline summaries, model setup
-│   summaries, and model visualisation artefacts.
+├── reports/
+│   Stores generated Markdown reports.
+│
+├── rankings/
+│   Stores ranked KB remediation JSON output.
+│
+├── summaries/
+│   Stores data pipeline, model pipeline, and model setup summaries.
+│
+├── charts/
+│   Stores clustering visualisation output.
 │
 src/
 ├── winshield_main.py
@@ -268,16 +289,29 @@ Generated artefacts are stored under project folders so the workflow can be revi
   Stored in `models/`. This includes trained regression, classification, clustering, and preprocessing artefacts.
 
 • **Ranking Results**  
-  Stored in `results/ranking_results.json`. This preserves machine-readable KB ranking output.
+  Stored in `results/rankings/ranking_results.json`. This preserves machine-readable KB ranking output.
 
 • **Markdown Report**  
-  Stored in `results/winshield_report.md`. This provides a readable runtime risk report.
+  Stored in `results/reports/winshield_report.md`. This provides a readable runtime risk report.
 
 • **Pipeline Summaries**  
-  Stored in `results/`. These summaries record data pipeline, model pipeline, and model setup execution metadata.
+  Stored in `results/summaries/`. These summaries record data pipeline, model pipeline, and model setup execution metadata.
+
+• **Model Charts**  
+  Stored in `results/charts/`. These charts support clustering review during Model Setup.
 
 • **Runtime Log**  
   Stored in `data/logs/`. This records operator workflow activity and generated output paths.
+
+Manual execution is also supported:
+
+```powershell
+python training\data_pipeline.py --mode training
+python training\model_pipeline.py
+python src\core\winshield_scanner.py
+python training\data_pipeline.py --mode runtime
+python src\core\winshield_prioritiser.py
+```
 
 ---
 
@@ -304,13 +338,31 @@ WinShield+ uses PowerShell for Windows collection and Python for orchestration, 
   `utils/winshield_risk.py` calculates policy risk using CVSS score, exploitation signal, network attack vector, privilege requirement, user interaction, impact, and patch age exposure. This score is the primary ranking method.
 
 • **Model Training**  
-  The model pipeline trains regression, classification, and clustering components against validated training data. Evaluation metrics are printed during Model Setup and stored in `results/model_pipeline_summary.json`.
+  The model pipeline trains regression, classification, and clustering components against validated training data. Evaluation metrics are printed during Model Setup and stored in `results/summaries/model_pipeline_summary.json`.
 
 • **Runtime Prioritisation**  
   Rank Risk rebuilds runtime rows from the latest scan, enriches missing-KB CVEs, applies policy risk, runs supporting model inference, and ranks KBs by highest policy risk.
 
 • **Report Generation**  
-  `winshield_reporter.py` reads ranked JSON and model summary data, then writes a Markdown report containing runtime summary, model evaluation, method explanation, ranked remediation, and review drivers.
+  `winshield_reporter.py` reads ranked JSON and model summary data, then writes a Markdown report containing runtime summary, model evaluation, method explanation, ranked remediation, review drivers, and CVE-level ranking review.
+
+---
+
+## Companion Collector
+
+WinShield+ is supported by a separate repository: [WinShield+ Collector](https://github.com/erwinmagielda/winshield_collector).
+
+The collector is a portable host-scanning tool that produces compatible WinShield+ scan JSON. It allows authorised endpoint data to be collected separately and later used for dataset growth or offline analysis.
+
+```text
+Portable USB
+    -> Run WinShield+ Collector
+    -> Scan Authorised Windows Host
+    -> Export Compatible Scan JSON
+    -> Store Archived Runtime Copy
+    -> Import Into WinShield+ Dataset
+    -> Increase Training Data Coverage
+```
 
 ---
 
@@ -331,6 +383,12 @@ Install Python dependencies:
 
 ```bat
 python -m pip install -r requirements.txt
+```
+
+Install the MSRC PowerShell module if needed:
+
+```powershell
+Install-Module MsrcSecurityUpdates -Scope CurrentUser
 ```
 
 Launch the operator workflow:
@@ -365,11 +423,11 @@ Current status: **functional lab implementation**.
 • **Risk Prioritisation**  
   Missing KBs are ranked by explainable policy risk. ML risk, ML priority, and cluster ID are included as supporting triage signals.
 
-• **Reporting & Cleanup**  
+• **Reporting And Cleanup**  
   Markdown report generation, timestamped logging, repository-relative output paths, runtime artefact cleanup, model artefact cleanup, and Python cache cleanup are implemented.
 
 • **Future Development**  
-  Future improvements could include cleaner results subdirectories, richer report filtering, optional CSV exports, clearer CVE grouping, update install hardening, safer offline test fixtures, or pinned baseline comparisons.
+  Future improvements could include richer report filtering, optional CSV exports, clearer CVE grouping, update install hardening, safer offline test fixtures, pinned baseline comparisons, or clearer cluster interpretation.
 
 ---
 
