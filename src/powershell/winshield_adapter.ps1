@@ -3,7 +3,9 @@
     WinShield+ MSRC adapter.
 
 .DESCRIPTION
-    Aggregates MSRC CVRF data for a specific Windows product across one or more MonthIds.
+    Aggregates MSRC CVRF data for a specific Windows product across one or more
+    MonthIds.
+
     Builds KB-to-CVE mappings and supersedence data used by winshield_scanner.py.
 
 .OUTPUTS
@@ -18,148 +20,371 @@ param(
     [string]$ProductNameHint
 )
 
+
 # ------------------------------------------------------------
 # INPUT NORMALISATION
 # ------------------------------------------------------------
 
-$MonthIds = @(
-    $MonthIds |
-        ForEach-Object { $_ -split "," } |
-        ForEach-Object { $_.Trim() } |
-        Where-Object { $_ }
-) | Sort-Object -Unique
+function ConvertTo-WinShieldMonthIdList {
+    <#
+    .SYNOPSIS
+        Normalise MonthId input into a unique sorted list.
+    #>
 
-if (-not $MonthIds -or -not $ProductNameHint) {
-    [pscustomobject]@{
-        Error           = "Invalid arguments"
-        MonthIds        = $MonthIds
-        ProductNameHint = $ProductNameHint
-    } | ConvertTo-Json -Depth 5
+    param(
+        [Parameter(Mandatory = $true)]
+        [string[]]$InputMonthIds
+    )
 
-    exit 1
+    return @(
+        $InputMonthIds |
+            ForEach-Object { $_ -split '[,\s]+' } |
+            ForEach-Object { $_.Trim() } |
+            Where-Object { $_ }
+    ) | Sort-Object -Unique
 }
+
+
+function ConvertTo-WinShieldKbId {
+    <#
+    .SYNOPSIS
+        Normalise a KB value to uppercase KB format.
+    #>
+
+    param(
+        [Parameter(Mandatory = $false)]
+        [AllowNull()]
+        [object]$Value
+    )
+
+    if (-not $Value) {
+        return $null
+    }
+
+    $text = [string]$Value
+
+    if ($text -match '(KB)?(\d{4,8})') {
+        return "KB$($Matches[2])"
+    }
+
+    return $null
+}
+
+
+function ConvertTo-WinShieldCveId {
+    <#
+    .SYNOPSIS
+        Normalise a CVE value to uppercase CVE format.
+    #>
+
+    param(
+        [Parameter(Mandatory = $false)]
+        [AllowNull()]
+        [object]$Value
+    )
+
+    if (-not $Value) {
+        return $null
+    }
+
+    $text = ([string]$Value).Trim().ToUpper()
+
+    if ($text -like 'CVE-*') {
+        return $text
+    }
+
+    return $null
+}
+
+
+# ------------------------------------------------------------
+# ERROR OUTPUT
+# ------------------------------------------------------------
+
+function Write-WinShieldJsonError {
+    <#
+    .SYNOPSIS
+        Emit a stable JSON error object.
+    #>
+
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Message,
+
+        [Parameter(Mandatory = $false)]
+        [AllowNull()]
+        [string]$Details = $null
+    )
+
+    [pscustomobject]@{
+        Error   = $Message
+        Details = $Details
+    } | ConvertTo-Json -Depth 5
+}
+
 
 # ------------------------------------------------------------
 # MODULE DEPENDENCY
 # ------------------------------------------------------------
 
-try {
-    Import-Module MsrcSecurityUpdates -ErrorAction Stop
-}
-catch {
-    [pscustomobject]@{
-        Error   = "Failed to load MsrcSecurityUpdates"
-        Details = $_.Exception.Message
-    } | ConvertTo-Json -Depth 5
-
-    exit 1
-}
-
-# ------------------------------------------------------------
-# AGGREGATION CONTAINER
-# ------------------------------------------------------------
-
-$kbMap = @{}
-
-# ------------------------------------------------------------
-# PER-MONTH PROCESSING
-# ------------------------------------------------------------
-
-foreach ($monthId in $MonthIds) {
+function Import-WinShieldMsrcModule {
+    <#
+    .SYNOPSIS
+        Import MsrcSecurityUpdates if available.
+    #>
 
     try {
-        $document = Get-MsrcCvrfDocument -ID $monthId -ErrorAction Stop
-        $affectedSoftware = Get-MsrcCvrfAffectedSoftware `
+        Import-Module MsrcSecurityUpdates -ErrorAction Stop
+        return $true
+    }
+    catch {
+        Write-WinShieldJsonError `
+            -Message 'Failed to load MsrcSecurityUpdates' `
+            -Details $_.Exception.Message
+
+        return $false
+    }
+}
+
+
+# ------------------------------------------------------------
+# MSRC DOCUMENT COLLECTION
+# ------------------------------------------------------------
+
+function Get-WinShieldAffectedSoftware {
+    <#
+    .SYNOPSIS
+        Return affected software rows for a MonthId.
+    #>
+
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$MonthId
+    )
+
+    try {
+        $document = Get-MsrcCvrfDocument -ID $MonthId -ErrorAction Stop
+
+        return Get-MsrcCvrfAffectedSoftware `
             -Vulnerability $document.Vulnerability `
             -ProductTree $document.ProductTree
     }
     catch {
-        continue
+        return @()
     }
+}
+
+
+# ------------------------------------------------------------
+# KB ENTRY MERGING
+# ------------------------------------------------------------
+
+function New-WinShieldKbEntry {
+    <#
+    .SYNOPSIS
+        Create an empty KB mapping object.
+    #>
+
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$KbId
+    )
+
+    [pscustomobject]@{
+        KB         = $KbId
+        Months     = @()
+        Cves       = @()
+        Supersedes = @()
+    }
+}
+
+
+function Add-WinShieldUniqueValue {
+    <#
+    .SYNOPSIS
+        Append a value to an object array property if it is not already present.
+    #>
+
+    param(
+        [Parameter(Mandatory = $true)]
+        [pscustomobject]$Target,
+
+        [Parameter(Mandatory = $true)]
+        [string]$PropertyName,
+
+        [Parameter(Mandatory = $false)]
+        [AllowNull()]
+        [string]$Value
+    )
+
+    if (-not $Value) {
+        return
+    }
+
+    if ($Target.$PropertyName -notcontains $Value) {
+        $Target.$PropertyName += $Value
+    }
+}
+
+
+function Get-WinShieldCveList {
+    <#
+    .SYNOPSIS
+        Extract normalised CVEs from an affected product row.
+    #>
+
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$ProductRow
+    )
+
+    if (-not $ProductRow.CVE) {
+        return @()
+    }
+
+    return @(
+        @($ProductRow.CVE) |
+            ForEach-Object { ConvertTo-WinShieldCveId -Value $_ } |
+            Where-Object { $_ } |
+            Sort-Object -Unique
+    )
+}
+
+
+function Get-WinShieldSupersededKbs {
+    <#
+    .SYNOPSIS
+        Extract superseded KB identifiers from an affected product row.
+    #>
+
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$ProductRow
+    )
+
+    if (-not $ProductRow.Supercedence) {
+        return @()
+    }
+
+    return @(
+        @($ProductRow.Supercedence) |
+            ForEach-Object { ConvertTo-WinShieldKbId -Value $_ } |
+            Where-Object { $_ } |
+            Sort-Object -Unique
+    )
+}
+
+
+function Add-WinShieldProductRowToKbMap {
+    <#
+    .SYNOPSIS
+        Merge one affected product row into the KB map.
+    #>
+
+    param(
+        [Parameter(Mandatory = $true)]
+        [hashtable]$KbMap,
+
+        [Parameter(Mandatory = $true)]
+        [string]$MonthId,
+
+        [Parameter(Mandatory = $true)]
+        [object]$ProductRow
+    )
+
+    $cveList = @(Get-WinShieldCveList -ProductRow $ProductRow)
+    $supersededKbs = @(Get-WinShieldSupersededKbs -ProductRow $ProductRow)
+
+    foreach ($kbArticle in @($ProductRow.KBArticle)) {
+        if (-not $kbArticle -or -not $kbArticle.ID) {
+            continue
+        }
+
+        $kbId = ConvertTo-WinShieldKbId -Value $kbArticle.ID
+
+        if (-not $kbId) {
+            continue
+        }
+
+        if (-not $KbMap.ContainsKey($kbId)) {
+            $KbMap[$kbId] = New-WinShieldKbEntry -KbId $kbId
+        }
+
+        Add-WinShieldUniqueValue -Target $KbMap[$kbId] -PropertyName 'Months' -Value $MonthId
+
+        foreach ($cve in $cveList) {
+            Add-WinShieldUniqueValue -Target $KbMap[$kbId] -PropertyName 'Cves' -Value $cve
+        }
+
+        foreach ($supersededKb in $supersededKbs) {
+            Add-WinShieldUniqueValue -Target $KbMap[$kbId] -PropertyName 'Supersedes' -Value $supersededKb
+        }
+    }
+}
+
+
+# ------------------------------------------------------------
+# MAIN WORKFLOW
+# ------------------------------------------------------------
+
+$normalisedMonthIds = ConvertTo-WinShieldMonthIdList -InputMonthIds $MonthIds
+$productName = $ProductNameHint.Trim()
+
+if (-not $normalisedMonthIds -or -not $productName) {
+    Write-WinShieldJsonError `
+        -Message 'Invalid arguments' `
+        -Details 'MonthIds and ProductNameHint are required.'
+
+    exit 1
+}
+
+if (-not (Import-WinShieldMsrcModule)) {
+    exit 1
+}
+
+$kbMap = @{}
+$monthsProcessed = @()
+$monthsWithProductRows = @()
+
+foreach ($monthId in $normalisedMonthIds) {
+    $affectedSoftware = @(Get-WinShieldAffectedSoftware -MonthId $monthId)
 
     if (-not $affectedSoftware) {
         continue
     }
 
-    $productRows = $affectedSoftware | Where-Object { $_.FullProductName -eq $ProductNameHint }
+    $monthsProcessed += $monthId
+
+    $productRows = @(
+        $affectedSoftware |
+            Where-Object { $_.FullProductName -eq $productName }
+    )
+
     if (-not $productRows) {
         continue
     }
 
+    $monthsWithProductRows += $monthId
+
     foreach ($productRow in $productRows) {
-        
-        $cveList = @()
-
-        if ($productRow.CVE) {
-            $cveList = @(
-                @($productRow.CVE) |
-                    ForEach-Object { ([string]$_).Trim().ToUpper() } |
-                    Where-Object { $_ -like "CVE-*" } |
-                    Sort-Object -Unique
-            )
-        }
-
-        $supersededKbs = @()
-
-        if ($productRow.Supercedence) {
-            foreach ($supersedenceEntry in @($productRow.Supercedence)) {
-                if ($supersedenceEntry -and $supersedenceEntry -match '(\d{4,7})') {
-                    $supersededKbs += "KB$($Matches[1])"
-                }
-            }
-        }
-
-        $supersededKbs = $supersededKbs | Sort-Object -Unique
-
-        foreach ($kbArticle in @($productRow.KBArticle)) {
-
-            if (-not $kbArticle -or -not $kbArticle.ID) {
-                continue
-            }
-
-            $kb = if ($kbArticle.ID -like 'KB*') {
-                $kbArticle.ID
-            }
-            else {
-                "KB$($kbArticle.ID)"
-            }
-
-            if (-not $kbMap.ContainsKey($kb)) {
-                $kbMap[$kb] = [pscustomobject]@{
-                    KB         = $kb
-                    Months     = @()
-                    Cves       = @()
-                    Supersedes = @()
-                }
-            }
-
-            if ($kbMap[$kb].Months -notcontains $monthId) {
-                $kbMap[$kb].Months += $monthId
-            }
-
-            foreach ($cve in $cveList) {
-                if ($cve -and $cve -like "CVE-*" -and $kbMap[$kb].Cves -notcontains $cve) {
-                    $kbMap[$kb].Cves += $cve
-                }
-            }
-
-            foreach ($supersededKb in $supersededKbs) {
-                if ($supersededKb -and $kbMap[$kb].Supersedes -notcontains $supersededKb) {
-                    $kbMap[$kb].Supersedes += $supersededKb
-                }
-            }
-        }
+        Add-WinShieldProductRowToKbMap `
+            -KbMap $kbMap `
+            -MonthId $monthId `
+            -ProductRow $productRow
     }
 }
+
 
 # ------------------------------------------------------------
 # OUTPUT
 # ------------------------------------------------------------
 
 [pscustomobject]@{
-    ProductNameHint = $ProductNameHint
-    MonthIds        = $MonthIds
-    KbEntries       = @(
+    ProductNameHint       = $productName
+    MonthIds              = @($normalisedMonthIds)
+    MonthsProcessed       = @($monthsProcessed | Sort-Object -Unique)
+    MonthsWithProductRows = @($monthsWithProductRows | Sort-Object -Unique)
+    KbEntries             = @(
         $kbMap.GetEnumerator() |
             ForEach-Object { $_.Value } |
             Sort-Object KB
