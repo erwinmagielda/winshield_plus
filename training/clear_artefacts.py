@@ -162,19 +162,13 @@ def count_directory_artefacts(directory: Path) -> int:
 
 
 def count_python_cache_artefacts() -> int:
-    """Count removable Python cache artefacts."""
+    """Count removable Python cache directories."""
 
-    cache_count = 0
-
-    for cache_dir in ROOT_DIR.rglob("__pycache__"):
-        if cache_dir.is_dir():
-            cache_count += 1
-
-    for bytecode_file in ROOT_DIR.rglob("*.pyc"):
-        if bytecode_file.is_file():
-            cache_count += 1
-
-    return cache_count
+    return sum(
+        1
+        for cache_dir in ROOT_DIR.rglob("__pycache__")
+        if cache_dir.is_dir()
+    )
 
 
 def count_generated_artefacts() -> int:

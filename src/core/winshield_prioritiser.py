@@ -87,6 +87,15 @@ def relative_path(path: Path) -> str:
         return str(path)
 
 
+def pluralise(value: int, singular: str, plural: str | None = None) -> str:
+    """Return a simple pluralised label."""
+
+    if value == 1:
+        return singular
+
+    return plural or f"{singular}s"
+
+
 def safe_mode(series: pd.Series, fallback: Any = "Unknown") -> Any:
     """Return the first mode value from a series, or fallback if unavailable."""
 
@@ -470,9 +479,6 @@ def main() -> int:
 
         report_path = generate_report()
         print_success(f"Report saved: {relative_path(report_path)}")
-
-        print()
-        print_success("Rank Risk completed")
 
         return 0
 
