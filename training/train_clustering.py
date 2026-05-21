@@ -176,8 +176,6 @@ def calculate_wcss(processed_features: Any, max_k: int = MAX_K) -> list[float]:
         inertia = float(model.inertia_)
         wcss.append(inertia)
 
-        print_info(f"K={cluster_count}: WCSS={inertia:.2f}")
-
     return wcss
 
 
@@ -261,16 +259,26 @@ def print_feature_summary(features: pd.DataFrame) -> None:
 
 
 def print_cluster_summary(training_data: pd.DataFrame) -> None:
-    """Print cluster distribution and risk summary."""
+    """Print compact cluster distribution and risk summary."""
 
     distribution = training_data["cluster"].value_counts().sort_index()
     average_risk = training_data.groupby("cluster")["risk_score"].mean().round(2)
 
     print_success(f"Clusters created: {len(distribution)}")
-
-    for cluster_id, count in distribution.items():
-        mean_risk = average_risk.get(cluster_id, 0)
-        print_info(f"Cluster {cluster_id}: {count} rows | Avg risk: {mean_risk}")
+    print_info(
+        "Cluster sizes: "
+        + ", ".join(
+            f"{cluster_id}: {count}"
+            for cluster_id, count in distribution.items()
+        )
+    )
+    print_info(
+        "Average risk: "
+        + ", ".join(
+            f"{cluster_id}: {average_risk.get(cluster_id, 0):.2f}"
+            for cluster_id in distribution.index
+        )
+    )
 
 
 # ------------------------------------------------------------

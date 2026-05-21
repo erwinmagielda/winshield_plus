@@ -18,6 +18,7 @@ from utils.winshield_banner import (
     print_error,
     print_info,
     print_menu_header,
+    print_menu_title,
     print_step,
     print_success,
     print_warning,
@@ -426,9 +427,9 @@ def run_runtime_pipeline() -> int:
 # ------------------------------------------------------------
 
 def print_menu() -> None:
-    """Print the interactive operator menu."""
+    """Print the compact interactive operator menu."""
 
-    print_menu_header()
+    print_menu_title()
     print("1) Scan System")
     print("2) Rank Risk")
     print("3) Download Update")
@@ -547,6 +548,8 @@ def main() -> int:
     if not prepare_environment():
         LOGGER.error("Runtime environment preparation failed")
         return 1
+
+    print_menu_header()
 
     while True:
         print_menu()

@@ -234,6 +234,25 @@ def get_flatten_sources(mode: str) -> tuple[list[Path], Path, Path]:
     return [find_latest_runtime_scan()], RUNTIME_DIR / "flattened_runtime.csv", RUNTIME_DIR
 
 
+def print_flatten_source_summary(
+    mode: str,
+    scan_files: list[Path],
+    source_directory: Path,
+) -> None:
+    """Print compact flatten source information."""
+
+    if mode == "training":
+        print_step("Reading training scans")
+    else:
+        print_step("Reading latest runtime scan")
+
+    print_success(f"Source directory: {relative_path(source_directory)}")
+    print_success(f"Scan files: {len(scan_files)}")
+
+    if mode == "runtime" and scan_files:
+        print_info(f"Runtime scan: {relative_path(scan_files[0])}")
+
+
 def flatten_scans(mode: str) -> tuple[Path, dict[str, Any]]:
     """Flatten scan JSON files into KB/CVE/month rows."""
 
@@ -241,18 +260,22 @@ def flatten_scans(mode: str) -> tuple[Path, dict[str, Any]]:
 
     scan_files, output_path, source_directory = get_flatten_sources(mode)
 
-    print_step(f"Source directory: {relative_path(source_directory)}")
-    print_info(f"Scan files discovered: {len(scan_files)}")
-
-    for scan_path in scan_files:
-        print(f"    - {relative_path(scan_path)}")
+    print_flatten_source_summary(
+        mode=mode,
+        scan_files=scan_files,
+        source_directory=source_directory,
+    )
 
     rows: list[dict[str, Any]] = []
     skipped_kb_entries = 0
     skipped_non_cve_ids = 0
+    source_file_summaries: list[dict[str, Any]] = []
+    missing_kbs_total = 0
 
     for scan_path in scan_files:
         scan = load_scan(scan_path)
+
+        kb_entries = scan.get("KbEntries", []) or []
 
         missing_kbs = {
             normalise_kb_id(kb)
@@ -260,13 +283,18 @@ def flatten_scans(mode: str) -> tuple[Path, dict[str, Any]]:
             if str(kb).strip()
         }
 
-        print_info(f"Processing scan: {relative_path(scan_path)}")
-        print_info(f"KB entries available: {len(scan.get('KbEntries', []) or [])}")
-
         if mode == "runtime":
-            print_info(f"Missing KB filter: {len(missing_kbs)} KBs")
+            missing_kbs_total += len(missing_kbs)
 
-        for patch in scan.get("KbEntries", []):
+        source_file_summaries.append(
+            {
+                "path": relative_path(scan_path),
+                "kb_entries": len(kb_entries),
+                "missing_kbs": len(missing_kbs),
+            }
+        )
+
+        for patch in kb_entries:
             kb_id = normalise_kb_id(patch.get("KB"))
 
             if mode == "runtime" and kb_id not in missing_kbs:
@@ -313,6 +341,8 @@ def flatten_scans(mode: str) -> tuple[Path, dict[str, Any]]:
         "scan_files": len(scan_files),
         "source_directory": relative_path(source_directory),
         "source_files": [relative_path(path) for path in scan_files],
+        "source_file_summaries": source_file_summaries,
+        "missing_kbs_total": int(missing_kbs_total),
         "raw_rows_created": int(raw_row_count),
         "duplicate_rows_removed": int(duplicate_rows_removed),
         "rows_created": int(deduplicated_count),
@@ -324,9 +354,12 @@ def flatten_scans(mode: str) -> tuple[Path, dict[str, Any]]:
         "output": relative_path(output_path),
     }
 
-    print_success(f"Raw rows created: {summary['raw_rows_created']}")
-    print_success(f"Duplicate rows removed: {summary['duplicate_rows_removed']}")
-    print_success(f"Rows created: {summary['rows_created']}")
+    if mode == "runtime":
+        print_success(f"Missing KBs analysed: {summary['missing_kbs_total']}")
+
+    print_success(f"Raw rows: {summary['raw_rows_created']}")
+    print_success(f"Rows after deduplication: {summary['rows_created']}")
+    print_info(f"Duplicate rows removed: {summary['duplicate_rows_removed']}")
     print_info(f"Skipped KB entries: {summary['skipped_kb_entries']}")
     print_info(f"Skipped non-CVE IDs: {summary['skipped_non_cve_ids']}")
     print_success(f"Unique KBs: {summary['unique_kbs']}")
@@ -476,8 +509,9 @@ def enrich_data(input_csv: Path) -> tuple[Path, dict[str, Any]]:
         if str(month).strip()
     )
 
-    print_step(f"Collecting MSRC metadata: {len(month_ids)} MonthIds")
-    print_info(f"PowerShell metadata script: {relative_path(POWERSHELL_SCRIPT)}")
+    print_step("Collecting MSRC metadata")
+    print_success(f"MonthIds requested: {len(month_ids)}")
+    print_info(f"Metadata script: {relative_path(POWERSHELL_SCRIPT)}")
 
     metadata = fetch_msrc_metadata(month_ids)
 
@@ -505,9 +539,13 @@ def enrich_data(input_csv: Path) -> tuple[Path, dict[str, Any]]:
     print_info(f"Missing metadata CVEs: {len(missing_metadata_cves)}")
 
     if missing_metadata_cves:
-        print_info("First missing metadata CVEs:")
-        for cve in missing_metadata_cves[:10]:
-            print(f"    - {cve}")
+        preview = ", ".join(missing_metadata_cves[:5])
+        remaining = len(missing_metadata_cves) - min(len(missing_metadata_cves), 5)
+
+        print_info(f"Missing metadata preview: {preview}")
+
+        if remaining > 0:
+            print_info(f"Additional missing metadata CVEs hidden: {remaining}")
 
     today = datetime.now(UTC)
     enriched_rows: list[dict[str, Any]] = []
@@ -564,7 +602,7 @@ def enrich_data(input_csv: Path) -> tuple[Path, dict[str, Any]]:
     }
 
     print_success(f"Rows enriched: {summary['rows_enriched']}")
-    print_success(f"Duplicate rows removed: {summary['duplicate_rows_removed']}")
+    print_info(f"Duplicate rows removed: {summary['duplicate_rows_removed']}")
     print_success(f"Rows with CVSS score: {summary['rows_with_cvss_score']}")
     print_success(f"Rows with attack vector: {summary['rows_with_attack_vector']}")
     print_success(f"Output: {relative_path(output_path)}")
@@ -611,7 +649,6 @@ def label_training_data(input_csv: Path) -> tuple[Path, dict[str, Any]]:
     }
 
     print_step("Applying shared policy risk labels")
-    print_info("Policy source: utils.winshield_risk.apply_risk_policy")
     print_success(f"Rows labelled: {summary['rows_labelled']}")
     print_success(f"Policy risk min: {summary['policy_risk_min']:.2f}")
     print_success(f"Policy risk max: {summary['policy_risk_max']:.2f}")
@@ -705,12 +742,10 @@ def validate_data(input_csv: Path, mode: str) -> tuple[Path, dict[str, Any]]:
 
     print_success(f"Rows before: {summary['rows_before']}")
     print_success(f"Rows after: {summary['rows_after']}")
-    print_info(f"Rows dropped: {summary['rows_dropped']}")
+    print_info(f"Rows removed: {summary['rows_dropped']}")
     print_info(f"Non-CVE rows removed: {summary['non_cve_rows_removed']}")
     print_info(f"Rows missing required fields: {summary['rows_missing_required_fields']}")
     print_info(f"Duplicate rows removed: {summary['duplicate_rows_removed']}")
-    print_info("Required fields: cvss_score, attack_vector")
-    print_info("Deduplication: kb_id, cve_id, month")
     print_success(f"Output: {relative_path(output_path)}")
 
     if after_count == 0:

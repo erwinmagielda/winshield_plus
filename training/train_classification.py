@@ -181,7 +181,6 @@ def print_feature_summary(features: pd.DataFrame) -> None:
     print_success(f"Feature columns: {len(features.columns)}")
     print_info(f"Numeric features: {len(numeric_features)}")
     print_info(f"Categorical features: {len(categorical_features)}")
-    print_info("Policy output columns excluded from model features")
 
 
 def print_evaluation(

@@ -30,8 +30,8 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 
-from core.winshield_reporter import generate_report
-from utils.winshield_banner import (
+from core.winshield_reporter import generate_report  # noqa: E402
+from utils.winshield_banner import (  # noqa: E402
     print_error,
     print_info,
     print_section,
@@ -39,12 +39,13 @@ from utils.winshield_banner import (
     print_success,
     print_warning,
 )
-from utils.winshield_paths import (
+from utils.winshield_paths import (  # noqa: E402
     ensure_directory,
+    get_models_dir,
     get_ranking_results_path,
     get_validated_runtime_path,
 )
-from utils.winshield_risk import apply_risk_policy
+from utils.winshield_risk import apply_risk_policy  # noqa: E402
 
 
 # ------------------------------------------------------------
@@ -54,7 +55,7 @@ from utils.winshield_risk import apply_risk_policy
 RUNTIME_DATA_PATH = get_validated_runtime_path()
 RESULTS_PATH = get_ranking_results_path()
 
-MODELS_DIR = ROOT_DIR / "models"
+MODELS_DIR = get_models_dir()
 
 REGRESSION_MODEL_PATH = MODELS_DIR / "regression_model.joblib"
 REGRESSION_PREPROCESSOR_PATH = MODELS_DIR / "regression_preprocessor.joblib"
@@ -64,6 +65,13 @@ CLASSIFICATION_PREPROCESSOR_PATH = MODELS_DIR / "classification_preprocessor.job
 
 CLUSTERING_MODEL_PATH = MODELS_DIR / "clustering_model.joblib"
 CLUSTERING_PREPROCESSOR_PATH = MODELS_DIR / "clustering_preprocessor.joblib"
+
+
+# ------------------------------------------------------------
+# CONSOLE LIMITS
+# ------------------------------------------------------------
+
+TOP_CVE_PREVIEW_LIMIT = 10
 
 
 # ------------------------------------------------------------
@@ -293,17 +301,12 @@ def print_runtime_summary(runtime_data: pd.DataFrame) -> None:
 
 
 def print_feature_summary(features: pd.DataFrame) -> None:
-    """Print model feature preparation summary."""
+    """Print compact model feature preparation summary."""
 
     print_section("Feature preparation")
     print_success(f"Model feature rows: {len(features)}")
     print_success(f"Model feature columns: {len(features.columns)}")
     print_info("Policy output columns excluded from model features")
-
-    if not features.empty:
-        print_info("Feature columns:")
-        for column in features.columns:
-            print(f"    - {column}")
 
 
 def print_policy_summary(predictions: pd.DataFrame) -> None:
@@ -334,12 +337,10 @@ def print_ml_summary(predictions: pd.DataFrame) -> None:
         print(f"    - Cluster {cluster_id}: {count}")
 
 
-def print_ranked_remediation(predictions: pd.DataFrame) -> None:
+def print_ranked_remediation(results: list[dict[str, Any]]) -> None:
     """Print aligned KB-level remediation order based on policy risk."""
 
     print_section("Ranked remediation")
-
-    results = build_results(predictions)
 
     if not results:
         print_warning("No ranking results produced")
@@ -372,89 +373,61 @@ def print_ranked_remediation(predictions: pd.DataFrame) -> None:
         )
 
 
-def print_cve_breakdown(predictions: pd.DataFrame) -> None:
-    """Print aligned CVE-level details grouped by ranked KB."""
+def print_top_cve_preview(results: list[dict[str, Any]]) -> None:
+    """Print a compact top-CVE preview for each ranked KB."""
 
-    print_section("CVE breakdown")
+    print_section("CVE preview")
 
-    sorted_predictions = predictions.sort_values("policy_risk", ascending=False)
-    kb_order = get_kb_order(sorted_predictions)
+    if not results:
+        print_warning("No CVE preview available")
+        return
 
-    cve_width = 18
-    policy_width = 7
-    ml_width = 7
-    priority_width = 10
-    cluster_width = 7
-    driver_width = 24
+    for entry in results:
+        cves = entry.get("cves", [])
+        preview_cves = cves[:TOP_CVE_PREVIEW_LIMIT]
+        hidden_count = len(cves) - len(preview_cves)
 
-    separator = "-" * 80
-
-    for index, kb_id in enumerate(kb_order, start=1):
-        kb_rows = sorted_predictions[sorted_predictions["kb_id"] == kb_id]
-
-        policy_risk = kb_rows["policy_risk"].max()
-        ml_risk = kb_rows["ml_risk"].max()
-        policy_priority = highest_priority(kb_rows["policy_priority"])
-        ml_priority = highest_priority(kb_rows["ml_priority"])
-        cluster = safe_mode(kb_rows["cluster"], fallback=0)
-        cve_count = len(kb_rows)
-
-        top_row = kb_rows.iloc[0]
-        review_reason = format_drivers(top_row.get("policy_drivers", []))
-
-        if index > 1:
-            print()
-            print(separator)
-            print()
-
-        print_success(kb_id)
-        print(
-            f"    KB risk: {policy_risk:.2f} | "
-            f"ML risk: {ml_risk:.2f} | "
-            f"Priority: {policy_priority} | "
-            f"ML priority: {ml_priority} | "
-            f"Cluster: {cluster} | "
-            f"CVEs: {cve_count}"
+        print_success(entry["kb_id"])
+        print_info(
+            f"Showing top {len(preview_cves)} of {len(cves)} CVEs by policy risk"
         )
-        print(f"    Reason: {review_reason}")
-        print()
 
         header = (
-            f"    {'CVE':<{cve_width}} | "
-            f"{'Policy':>{policy_width}} | "
-            f"{'ML risk':>{ml_width}} | "
-            f"{'Priority':<{priority_width}} | "
-            f"{'Cluster':>{cluster_width}} | "
-            f"{'Driver':<{driver_width}}"
+            f"    {'CVE':<18} | "
+            f"{'Policy':>7} | "
+            f"{'ML risk':>7} | "
+            f"{'Priority':<10} | "
+            f"{'Driver':<24}"
         )
 
         print(header)
         print("    " + "-" * (len(header) - 4))
 
-        for _, row in kb_rows.iterrows():
+        for cve in preview_cves:
             print(
-                f"    {row['cve_id']:<{cve_width}} | "
-                f"{row['policy_risk']:>{policy_width}.2f} | "
-                f"{row['ml_risk']:>{ml_width}.2f} | "
-                f"{row['policy_priority']:<{priority_width}} | "
-                f"{row['cluster']:>{cluster_width}} | "
-                f"{row['top_driver']:<{driver_width}}"
+                f"    {cve['cve_id']:<18} | "
+                f"{cve['policy_risk']:>7.2f} | "
+                f"{cve['ml_risk']:>7.2f} | "
+                f"{cve['policy_priority']:<10} | "
+                f"{cve['top_driver']:<24}"
             )
+
+        if hidden_count > 0:
+            print_info(f"Additional CVEs hidden from terminal: {hidden_count}")
+            print_info("Full CVE breakdown saved to ranking JSON and Markdown report")
 
 
 # ------------------------------------------------------------
 # RESULT EXPORT
 # ------------------------------------------------------------
 
-def save_results(predictions: pd.DataFrame) -> Path:
+def save_results(results: list[dict[str, Any]]) -> Path:
     """Save KB ranking results to the ranking results path."""
 
     ensure_directory(RESULTS_PATH.parent)
 
-    output = build_results(predictions)
-
     with RESULTS_PATH.open("w", encoding="utf-8") as file:
-        json.dump(output, file, indent=2)
+        json.dump(results, file, indent=2)
 
     return RESULTS_PATH
 
@@ -476,7 +449,7 @@ def main() -> int:
         print_runtime_summary(runtime_data)
 
         print_section("Inference")
-        print_step("Applying risk policy")
+        print_step("Applying policy risk logic")
         policy_data = apply_risk_policy(runtime_data)
         print_success("Policy scores generated")
 
@@ -491,13 +464,15 @@ def main() -> int:
         predictions = predict_priorities(runtime_data)
         print_success("ML supporting signals generated")
 
+        results = build_results(predictions)
+
         print_policy_summary(predictions)
         print_ml_summary(predictions)
-        print_ranked_remediation(predictions)
-        print_cve_breakdown(predictions)
+        print_ranked_remediation(results)
+        print_top_cve_preview(results)
 
         print_section("Export")
-        results_path = save_results(predictions)
+        results_path = save_results(results)
         print_success(f"Results saved: {relative_path(results_path)}")
 
         report_path = generate_report()

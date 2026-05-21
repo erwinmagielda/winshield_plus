@@ -61,6 +61,14 @@ RUNTIME_DIR = get_runtime_dir()
 
 
 # ------------------------------------------------------------
+# CONSOLE LIMITS
+# ------------------------------------------------------------
+
+KB_TABLE_LIMIT = 10
+CVE_PREVIEW_LIMIT = 5
+
+
+# ------------------------------------------------------------
 # GENERAL HELPERS
 # ------------------------------------------------------------
 
@@ -83,6 +91,54 @@ def normalise_kb_id(value: Any) -> str:
     """Return a normalised KB identifier."""
 
     return str(value).strip().upper()
+
+
+def count_cves(entry: dict[str, Any]) -> int:
+    """Return the number of CVEs attached to a KB entry."""
+
+    return len(entry.get("Cves") or [])
+
+
+def format_months(entry: dict[str, Any]) -> str:
+    """Return a compact MonthId display string."""
+
+    months = entry.get("Months") or []
+
+    if not months:
+        return "-"
+
+    return ", ".join(months)
+
+
+def get_kb_status(
+    kb_id: str,
+    installed_kbs: set[str],
+    logical_present_kbs: set[str],
+    superseded_by: dict[str, list[str]],
+) -> str:
+    """Return the resolved status for a KB."""
+
+    if kb_id in installed_kbs:
+        return "Installed"
+
+    if kb_id in logical_present_kbs:
+        replacing_kbs = superseded_by.get(kb_id, [])
+
+        if replacing_kbs:
+            return f"Superseded by {', '.join(replacing_kbs)}"
+
+        return "Superseded"
+
+    return "Missing"
+
+
+def get_kb_type(entry: dict[str, Any] | None) -> str:
+    """Return the mapped update type for a KB."""
+
+    if not entry:
+        return "Unmapped"
+
+    return entry.get("UpdateType") or "Mapped"
 
 
 # ------------------------------------------------------------
@@ -238,6 +294,18 @@ def chunk_list(items: list[str], size: int) -> list[list[str]]:
     ]
 
 
+def format_month_range(month_ids: list[str]) -> str:
+    """Return a compact display value for a MonthId range."""
+
+    if not month_ids:
+        return "-"
+
+    if len(month_ids) == 1:
+        return month_ids[0]
+
+    return f"{month_ids[0]} to {month_ids[-1]}"
+
+
 # ------------------------------------------------------------
 # KB ENTRY MERGING
 # ------------------------------------------------------------
@@ -336,13 +404,13 @@ def compute_supersedence(
 # CONSOLE OUTPUT
 # ------------------------------------------------------------
 
-def print_kb_table(
+def build_kb_rows(
     kb_entries: list[dict[str, Any]],
     installed_kbs: set[str],
     logical_present_kbs: set[str],
     superseded_by: dict[str, list[str]],
-) -> None:
-    """Print KB correlation results in a readable console table."""
+) -> list[dict[str, Any]]:
+    """Build compact KB rows for console display."""
 
     kb_index: dict[str, dict[str, Any]] = {
         entry["KB"]: entry
@@ -352,78 +420,61 @@ def print_kb_table(
 
     all_kbs = sorted(set(kb_index) | installed_kbs | logical_present_kbs)
 
-    col_kb_width = 11
-    col_type_width = 12
-    col_status_width = 40
-    col_months_width = 20
-
-    print_section("KB correlation")
-    print_info(f"Installed KBs included: {len(installed_kbs)}")
-    print_info(f"MSRC KB entries included: {len(kb_index)}")
-    print_info(f"Logical KBs after supersedence: {len(logical_present_kbs)}")
-    print()
-
-    print(
-        f"{'KB':<{col_kb_width}} "
-        f"{'Type':<{col_type_width}} "
-        f"{'Status':<{col_status_width}} "
-        f"{'Months':<{col_months_width}} "
-        f"CVEs"
-    )
-    print("-" * 110)
+    rows: list[dict[str, Any]] = []
 
     for kb_id in all_kbs:
-        entry = kb_index.get(
-            kb_id,
+        entry = kb_index.get(kb_id)
+
+        rows.append(
             {
-                "KB": kb_id,
-                "Months": [],
-                "Cves": [],
-                "Supersedes": [],
-                "UpdateType": "Unmapped",
-            },
+                "kb_id": kb_id,
+                "type": get_kb_type(entry),
+                "status": get_kb_status(
+                    kb_id=kb_id,
+                    installed_kbs=installed_kbs,
+                    logical_present_kbs=logical_present_kbs,
+                    superseded_by=superseded_by,
+                ),
+                "months": format_months(entry or {}),
+                "cve_count": count_cves(entry or {}),
+            }
         )
 
-        months = list(entry.get("Months") or [])
-        cves = list(entry.get("Cves") or [])
-        update_type = entry.get("UpdateType", "")
+    return rows
 
-        if kb_id in installed_kbs:
-            status = "Installed"
-        elif kb_id in logical_present_kbs:
-            replacing_kbs = superseded_by.get(kb_id, [])
-            status = (
-                f"Superseded ({', '.join(replacing_kbs)})"
-                if replacing_kbs
-                else "Superseded"
-            )
-        else:
-            status = "Missing"
 
-        if not months:
-            months = [""]
+def print_kb_summary_table(rows: list[dict[str, Any]]) -> None:
+    """Print a compact KB correlation table without expanding every CVE."""
 
-        if not cves:
-            cves = [""]
+    print_section("KB correlation")
 
-        row_height = max(len(months), len(cves))
+    if not rows:
+        print_warning("No KB rows available")
+        return
 
-        for index in range(row_height):
-            kb_cell = kb_id if index == 0 else ""
-            type_cell = update_type if index == 0 else ""
-            status_cell = status if index == 0 else ""
-            month_cell = months[index] if index < len(months) else ""
-            cve_cell = cves[index] if index < len(cves) else ""
+    print(
+        f"{'KB':<12} "
+        f"{'Type':<12} "
+        f"{'Status':<28} "
+        f"{'Months':<18} "
+        f"{'CVEs':>5}"
+    )
+    print("-" * 82)
 
-            print(
-                f"{kb_cell:<{col_kb_width}} "
-                f"{type_cell:<{col_type_width}} "
-                f"{status_cell:<{col_status_width}} "
-                f"{month_cell:<{col_months_width}} "
-                f"{cve_cell}"
-            )
+    for row in rows[:KB_TABLE_LIMIT]:
+        print(
+            f"{row['kb_id']:<12} "
+            f"{row['type']:<12} "
+            f"{row['status']:<28} "
+            f"{row['months']:<18} "
+            f"{row['cve_count']:>5}"
+        )
 
-        print("-" * 110)
+    remaining_rows = len(rows) - KB_TABLE_LIMIT
+
+    if remaining_rows > 0:
+        print_info(f"Additional KB rows hidden: {remaining_rows}")
+        print_info("Full KB/CVE details are saved in the runtime JSON")
 
 
 def print_missing_kbs(
@@ -446,9 +497,17 @@ def print_missing_kbs(
     for kb_id in missing_kbs:
         entry = kb_index.get(kb_id, {})
         months = ", ".join(entry.get("Months") or [])
-        cve_count = len(entry.get("Cves") or [])
+        cves = entry.get("Cves") or []
+        preview_cves = cves[:CVE_PREVIEW_LIMIT]
+        hidden_count = len(cves) - len(preview_cves)
 
-        print_warning(f"{kb_id} | Months: {months} | CVEs: {cve_count}")
+        print_warning(f"{kb_id} | Months: {months} | CVEs: {len(cves)}")
+
+        if preview_cves:
+            print_info(f"Top preview: {', '.join(preview_cves)}")
+
+        if hidden_count > 0:
+            print_info(f"Additional CVEs hidden: {hidden_count}")
 
 
 # ------------------------------------------------------------
@@ -512,18 +571,19 @@ def main() -> int:
         print_section("MSRC correlation")
         print_step("Building MonthId range")
         month_ids = build_month_ids_from_lcu(baseline)
+        month_chunks = chunk_list(month_ids, 3)
 
-        print_success(f"Months requested: {', '.join(month_ids)}")
-        print_info(f"Month chunks: {len(chunk_list(month_ids, 3))}")
+        print_success(f"Month range: {format_month_range(month_ids)}")
+        print_info(f"Months requested: {len(month_ids)}")
+        print_info(f"Month chunks: {len(month_chunks)}")
 
         merged_entries: dict[str, dict[str, Any]] = {}
         months_with_entries: list[str] = []
+        total_entries_returned = 0
 
         print_step("Querying MSRC CVRF data")
 
-        for month_chunk in chunk_list(month_ids, 3):
-            print_info(f"Query chunk: {', '.join(month_chunk)}")
-
+        for month_chunk in month_chunks:
             msrc_data = run_powershell_script(
                 ADAPTER_SCRIPT,
                 extra_args=[
@@ -535,7 +595,7 @@ def main() -> int:
             )
 
             entries = msrc_data.get("KbEntries") or []
-            print_info(f"KB entries returned: {len(entries)}")
+            total_entries_returned += len(entries)
 
             if entries:
                 months_with_entries.extend(month_chunk)
@@ -547,6 +607,7 @@ def main() -> int:
 
         kb_entries = finalise_kb_entries(list(merged_entries.values()))
 
+        print_success(f"Raw KB entries returned: {total_entries_returned}")
         print_success(f"KB entries mapped: {len(kb_entries)}")
         print_success(f"Months with entries: {len(set(months_with_entries))}")
 
@@ -568,12 +629,14 @@ def main() -> int:
         print_success(f"Installed or superseded KBs: {len(expected_kbs - set(missing_kbs))}")
         print_success(f"Missing KBs: {len(missing_kbs)}")
 
-        print_kb_table(
+        kb_rows = build_kb_rows(
             kb_entries=kb_entries,
             installed_kbs=installed_kbs,
             logical_present_kbs=logical_present_kbs,
             superseded_by=superseded_by,
         )
+
+        print_kb_summary_table(kb_rows)
 
         print_missing_kbs(
             missing_kbs=missing_kbs,

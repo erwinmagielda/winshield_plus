@@ -67,7 +67,7 @@ def get_tool_version() -> str:
 def utc_timestamp() -> str:
     """Return UTC timestamp for report metadata."""
 
-    return datetime.now(UTC).isoformat()
+    return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 def relative_path(path: Path) -> str:
@@ -107,6 +107,26 @@ def format_metric(value: Any, decimals: int = 4) -> str:
         return f"{float(value):.{decimals}f}"
     except (TypeError, ValueError):
         return str(value)
+
+
+def format_drivers(value: Any) -> str:
+    """Return policy drivers as a readable string."""
+
+    if isinstance(value, list):
+        return ", ".join(str(item) for item in value)
+
+    if value is None:
+        return "Not available"
+
+    return str(value)
+
+
+def markdown_escape(value: Any) -> str:
+    """Escape table-sensitive characters for Markdown cells."""
+
+    text = str(value)
+
+    return text.replace("|", "\\|").replace("\n", " ")
 
 
 # ------------------------------------------------------------
@@ -331,6 +351,12 @@ def append_ranked_remediation(lines: list[str], results: list[dict[str, Any]]) -
 
     lines.append("## Ranked Remediation")
     lines.append("")
+
+    if not results:
+        lines.append("No ranked remediation results were generated.")
+        lines.append("")
+        return
+
     lines.append(
         "| Rank | KB | Policy Risk | ML Risk | Priority | ML Priority | Cluster | CVEs | Top Driver |"
     )
@@ -340,14 +366,14 @@ def append_ranked_remediation(lines: list[str], results: list[dict[str, Any]]) -
         lines.append(
             "| "
             f"{index} | "
-            f"{entry.get('kb_id', 'Unknown')} | "
+            f"{markdown_escape(entry.get('kb_id', 'Unknown'))} | "
             f"{safe_float(entry.get('policy_risk')):.2f} | "
             f"{safe_float(entry.get('ml_risk')):.2f} | "
-            f"{entry.get('policy_priority', 'Unknown')} | "
-            f"{entry.get('ml_priority', 'Unknown')} | "
+            f"{markdown_escape(entry.get('policy_priority', 'Unknown'))} | "
+            f"{markdown_escape(entry.get('ml_priority', 'Unknown'))} | "
             f"{safe_int(entry.get('cluster'))} | "
             f"{safe_int(entry.get('cve_count'))} | "
-            f"{entry.get('top_driver', 'Unknown')} |"
+            f"{markdown_escape(entry.get('top_driver', 'Unknown'))} |"
         )
 
     lines.append("")
@@ -365,12 +391,73 @@ def append_review_drivers(lines: list[str], results: list[dict[str, Any]]) -> No
         return
 
     for entry in results:
-        kb_id = entry.get("kb_id", "Unknown")
-        reason = entry.get("review_reason", "No review reason provided.")
+        kb_id = markdown_escape(entry.get("kb_id", "Unknown"))
+        reason = markdown_escape(entry.get("review_reason", "No review reason provided."))
 
-        lines.append(f"- {kb_id}: {reason}")
+        lines.append(f"- **{kb_id}**: {reason}")
 
     lines.append("")
+
+
+def append_cve_evidence(lines: list[str], results: list[dict[str, Any]]) -> None:
+    """Append full CVE-level evidence grouped by ranked KB."""
+
+    lines.append("## CVE Evidence")
+    lines.append("")
+
+    if not results:
+        lines.append("No CVE evidence was generated.")
+        lines.append("")
+        return
+
+    lines.append(
+        "This section keeps the full CVE-level evidence out of the terminal "
+        "while preserving it in the Markdown report for review."
+    )
+    lines.append("")
+
+    for entry in results:
+        kb_id = markdown_escape(entry.get("kb_id", "Unknown"))
+        cves = entry.get("cves", [])
+
+        lines.append(f"### {kb_id}")
+        lines.append("")
+        lines.append(f"- Policy risk: {safe_float(entry.get('policy_risk')):.2f}")
+        lines.append(f"- ML risk: {safe_float(entry.get('ml_risk')):.2f}")
+        lines.append(f"- Policy priority: {markdown_escape(entry.get('policy_priority', 'Unknown'))}")
+        lines.append(f"- ML priority: {markdown_escape(entry.get('ml_priority', 'Unknown'))}")
+        lines.append(f"- Cluster: {safe_int(entry.get('cluster'))}")
+        lines.append(f"- CVEs reviewed: {safe_int(entry.get('cve_count'))}")
+        lines.append(f"- Review reason: {markdown_escape(entry.get('review_reason', 'Not available'))}")
+        lines.append("")
+
+        if not isinstance(cves, list) or not cves:
+            lines.append("No CVE rows were available for this KB.")
+            lines.append("")
+            continue
+
+        lines.append(
+            "| CVE | Policy Risk | ML Risk | Policy Priority | ML Priority | Cluster | Driver | Policy Drivers |"
+        )
+        lines.append("|---|---:|---:|---|---|---:|---|---|")
+
+        for cve in cves:
+            if not isinstance(cve, dict):
+                continue
+
+            lines.append(
+                "| "
+                f"{markdown_escape(cve.get('cve_id', 'Unknown'))} | "
+                f"{safe_float(cve.get('policy_risk')):.2f} | "
+                f"{safe_float(cve.get('ml_risk')):.2f} | "
+                f"{markdown_escape(cve.get('policy_priority', 'Unknown'))} | "
+                f"{markdown_escape(cve.get('ml_priority', 'Unknown'))} | "
+                f"{safe_int(cve.get('cluster'))} | "
+                f"{markdown_escape(cve.get('top_driver', 'Unknown'))} | "
+                f"{markdown_escape(format_drivers(cve.get('drivers', 'Not available')))} |"
+            )
+
+        lines.append("")
 
 
 def append_notes(lines: list[str]) -> None:
@@ -393,6 +480,10 @@ def append_notes(lines: list[str]) -> None:
     lines.append(
         "- Runtime ranking only includes KBs identified as missing during the "
         "latest scan."
+    )
+    lines.append(
+        "- Full machine-readable ranking evidence is preserved in "
+        f"`{relative_path(RANKING_RESULTS_PATH)}`."
     )
     lines.append("")
 
@@ -417,6 +508,7 @@ def build_report(results: list[dict[str, Any]]) -> str:
     append_method(lines)
     append_ranked_remediation(lines, results)
     append_review_drivers(lines, results)
+    append_cve_evidence(lines, results)
     append_notes(lines)
 
     return "\n".join(lines)

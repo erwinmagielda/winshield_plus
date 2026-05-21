@@ -241,13 +241,7 @@ def confirm_cleanup() -> bool:
     """Ask the operator to confirm cleanup before deleting generated files."""
 
     print_warning("Generated artefacts will be removed")
-    print_info("Directories selected:")
-
-    for directory in GENERATED_DIRS.values():
-        print(f"    - {relative_path(directory)}")
-
-    print("    - Python cache artefacts")
-    print()
+    print_info(f"Generated directories selected: {len(GENERATED_DIRS)}")
     print_success(f"Preserved: {relative_path(SCANS_DIR)}")
     print_success("Preserved: .gitkeep placeholders")
     print()
@@ -263,20 +257,37 @@ def confirm_cleanup() -> bool:
 # ------------------------------------------------------------
 
 def print_cleanup_plan() -> None:
-    """Print cleanup scope before confirmation."""
+    """Print compact cleanup scope before confirmation."""
 
-    print_step("Checking source training scans")
+    print_step("Checking cleanup scope")
     print_success(f"Source training scans preserved: {relative_path(SCANS_DIR)}")
     print_info(f"Generated directories checked: {len(GENERATED_DIRS)}")
-    print_info(f"Placeholder directories checked: {len(PLACEHOLDER_DIRS)}")
+    print_info("Python cache artefacts included")
     print()
 
 
-def print_removed_counts(removed_by_category: dict[str, int]) -> None:
-    """Print removed artefact counts by category."""
+def print_removed_summary(removed_by_category: dict[str, int]) -> None:
+    """Print compact cleanup summary."""
 
-    for label, removed_count in removed_by_category.items():
-        print(f"    {label}: {removed_count}")
+    removed_total = sum(removed_by_category.values())
+    active_categories = {
+        label: count
+        for label, count in removed_by_category.items()
+        if count > 0
+    }
+
+    print_success(f"Removed artefacts: {removed_total}")
+
+    if not active_categories:
+        print_info("No generated artefacts were present")
+        return
+
+    compact_counts = ", ".join(
+        f"{label}: {count}"
+        for label, count in active_categories.items()
+    )
+
+    print_info(f"Removed by group: {compact_counts}")
 
 
 def print_skipped_paths(title: str, paths: list[Path]) -> None:
@@ -287,11 +298,11 @@ def print_skipped_paths(title: str, paths: list[Path]) -> None:
 
     print_warning(f"{title}: {len(paths)}")
 
-    for path in paths[:10]:
+    for path in paths[:5]:
         print(f"    - {relative_path(path)}")
 
-    if len(paths) > 10:
-        print(f"    - ... {len(paths) - 10} more")
+    if len(paths) > 5:
+        print(f"    - ... {len(paths) - 5} more")
 
 
 # ------------------------------------------------------------
@@ -332,17 +343,16 @@ def main() -> int:
 
     write_gitkeep_files()
 
-    print()
-    print_success(f"Removed artefacts: {total_result.removed_count}")
-    print_removed_counts(removed_by_category)
+    print_removed_summary(removed_by_category)
 
     print_skipped_paths("Locked artefacts skipped", total_result.skipped_locked)
     print_skipped_paths("Artefacts skipped due to errors", total_result.skipped_other)
 
-    print()
-    print_success("Clear Artefacts completed")
     print_success("Source training scans preserved")
     print_success("Generated directory structure preserved")
+
+    print()
+    print_success("Clear Artefacts completed")
 
     return 0
 

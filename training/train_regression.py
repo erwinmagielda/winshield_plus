@@ -319,12 +319,6 @@ def main() -> int:
             test_target=test_target,
         )
 
-        print_section("Feature importance")
-        print_feature_importance(
-            model=model,
-            preprocessor=preprocessor,
-        )
-
         print_section("Export")
         save_artefacts(
             model=model,

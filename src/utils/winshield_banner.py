@@ -42,6 +42,15 @@ def print_menu_header() -> None:
     print()
 
 
+def print_menu_title() -> None:
+    """Print a compact menu title without repeating the logo."""
+
+    print()
+    print("WinShield+ Operator Menu")
+    print(HEADER_LINE)
+    print()
+
+
 def print_workflow_header(title: str) -> None:
     """Print a top-level workflow header without repeating the logo."""
 
